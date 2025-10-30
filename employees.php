@@ -2,7 +2,21 @@
 require_once 'includes/config.php';
 
 $message = ''; 
+$search_term = '';
+$search_condition = '';
+$search_params = [];
 
+// --- 1. Handle Employee Search Query ---
+if (isset($_GET['search']) && !empty($_GET['search'])) {
+    $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
+    // Use LIKE for global search across Name, ID, Department, or Position
+    $search_condition = " WHERE e.name LIKE ? OR e.employee_id LIKE ? OR e.department LIKE ? OR e.position LIKE ?";
+    $like_term = '%' . $search_term . '%';
+    $search_params = [$like_term, $like_term, $like_term, $like_term];
+}
+
+
+// --- 2. Handle ADD NEW EMPLOYEE ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_employee'])) {
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
     $name = filter_input(INPUT_POST, 'name', FILTER_SANITIZE_STRING);
@@ -21,13 +35,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_employee'])) {
             if ($e->getCode() == 23000) {
                 $message = '<div class="alert alert-warning">Error: Employee ID **' . htmlspecialchars($employee_id) . '** already exists.</div>';
             } else {
+                // error_log("Employee Add Error: " . $e->getMessage()); 
                 $message = '<div class="alert alert-danger">Database Error: Could not add employee.</div>';
             }
         }
     }
 }
 
-// Fetch all employees and count their assigned assets
+// --- 3. Fetch all employees (with search filter) ---
 $sql_fetch = "
     SELECT 
         e.employee_id, e.name, e.department, e.position, COUNT(a.asset_id) AS assigned_assets
@@ -35,13 +50,16 @@ $sql_fetch = "
         employees e
     LEFT JOIN 
         assets a ON e.employee_id = a.current_user_id
+    {$search_condition} 
     GROUP BY
         e.employee_id, e.name, e.department, e.position
     ORDER BY 
         e.employee_id ASC
 ";
-$stmt = $pdo->query($sql_fetch);
+$stmt = $pdo->prepare($sql_fetch);
+$stmt->execute($search_params);
 $employees = $stmt->fetchAll();
+$employee_count = count($employees);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -50,9 +68,9 @@ $employees = $stmt->fetchAll();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IT Inventory | Employees</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { background-color: #f8f9fa; }
-        /* ... (CSS for sidebar/wrapper from index.php) ... */
         #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
         #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
         #page-content-wrapper { min-width: 100vw; }
@@ -76,7 +94,17 @@ $employees = $stmt->fetchAll();
     </div>
     <div id="page-content-wrapper">
         <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
-            </nav>
+            <div class="container-fluid">
+                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
+                <div class="collapse navbar-collapse">
+                    <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">Logout</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
 
         <div class="container-fluid p-4">
             <h1 class="mt-4 mb-4">🧑‍💻 Employee Management</h1>
@@ -112,7 +140,24 @@ $employees = $stmt->fetchAll();
             </div>
             
             <div class="card shadow-lg">
-                <div class="card-header bg-white border-bottom">Current Employees List</div>
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                    <div>Current Employees List (<?php echo $employee_count; ?> Found)</div>
+                    
+                    <form method="GET" action="employees.php" class="d-flex" style="width: 300px;">
+                        <input 
+                            class="form-control me-2" 
+                            type="search" 
+                            placeholder="Search Name, ID, Dept, or Position" 
+                            aria-label="Search" 
+                            name="search"
+                            value="<?php echo htmlspecialchars($search_term); ?>"
+                        >
+                        <button class="btn btn-outline-success" type="submit"><i class="bi bi-search"></i></button>
+                        <?php if (!empty($search_term)): ?>
+                            <a href="employees.php" class="btn btn-outline-danger ms-1"><i class="bi bi-x"></i></a>
+                        <?php endif; ?>
+                    </form>
+                    </div>
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-striped table-hover align-middle">
@@ -126,15 +171,31 @@ $employees = $stmt->fetchAll();
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($employees as $employee): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($employee['employee_id']); ?></td>
-                                    <td><?php echo htmlspecialchars($employee['name']); ?></td>
-                                    <td><?php echo htmlspecialchars($employee['department']); ?></td>
-                                    <td><?php echo htmlspecialchars($employee['position']); ?></td>
-                                    <td><span class="badge bg-secondary"><?php echo $employee['assigned_assets']; ?></span></td> 
-                                </tr>
-                                <?php endforeach; ?>
+                                <?php if ($employee_count > 0): ?>
+                                    <?php foreach ($employees as $employee): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($employee['employee_id']); ?></td>
+                                        <td>
+                                            <a href="employee_details.php?id=<?php echo $employee['employee_id']; ?>">
+                                                <?php echo htmlspecialchars($employee['name']); ?>
+                                            </a>
+                                        </td>
+                                        <td><?php echo htmlspecialchars($employee['department']); ?></td>
+                                        <td><?php echo htmlspecialchars($employee['position']); ?></td>
+                                        <td><span class="badge bg-secondary"><?php echo $employee['assigned_assets']; ?></span></td> 
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted">
+                                            <?php if (!empty($search_term)): ?>
+                                                No employees found matching "<?php echo htmlspecialchars($search_term); ?>".
+                                            <?php else: ?>
+                                                No employees recorded.
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
@@ -146,5 +207,12 @@ $employees = $stmt->fetchAll();
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.getElementById("sidebarToggle").addEventListener("click", function() {
+        var wrapper = document.getElementById("wrapper");
+        wrapper.classList.toggle("toggled");
+    });
+</script>
+
 </body>
 </html>

@@ -226,6 +226,7 @@ try {
                                             <th>Asset Tag</th>
                                             <th>Type</th>
                                             <th>To Employee</th>
+                                            
                                         </tr>
                                     </thead>
                                     <tbody>

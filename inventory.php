@@ -2,10 +2,22 @@
 require_once 'includes/config.php';
 
 $message = ''; 
+$search_term = '';
+$search_condition = '';
+$search_params = [];
 
-// --- 1. HANDLE ADD NEW ASSET ---
+// --- 1. HANDLE SEARCH QUERY ---
+if (isset($_GET['search']) && !empty($_GET['search'])) {
+    $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
+    // Use LIKE for global search across FAM Tag, Serial, Type, or Name
+    $search_condition = " WHERE a.fam_tag_number LIKE ? OR a.serial_number LIKE ? OR a.device_type LIKE ? OR a.device_name LIKE ?";
+    $like_term = '%' . $search_term . '%';
+    $search_params = [$like_term, $like_term, $like_term, $like_term];
+}
+
+
+// --- 2. HANDLE ADD NEW ASSET ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_asset'])) {
-    // ... (Existing ADD Asset Logic remains the same) ...
     $fam_tag_number = filter_input(INPUT_POST, 'fam_tag_number', FILTER_SANITIZE_STRING);
     $device_type = filter_input(INPUT_POST, 'device_type', FILTER_SANITIZE_STRING);
     $device_name = filter_input(INPUT_POST, 'device_name', FILTER_SANITIZE_STRING);
@@ -32,7 +44,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_asset'])) {
     }
 }
 
-// --- 2. HANDLE EDIT/UPDATE ASSET ---
+// --- 3. HANDLE EDIT/UPDATE ASSET ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_asset'])) {
     $asset_id = filter_input(INPUT_POST, 'edit_asset_id', FILTER_SANITIZE_NUMBER_INT);
     $fam_tag_number = filter_input(INPUT_POST, 'edit_fam_tag_number', FILTER_SANITIZE_STRING);
@@ -45,7 +57,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_asset'])) {
         $message = '<div class="alert alert-danger">All fields are required for the update.</div>';
     } else {
         try {
-            // NOTE: The current_user_id is NOT updated here; it's managed via Transmittal ONLY.
+            // NOTE: current_user_id is only updated via Transmittal
             $sql = "UPDATE assets 
                     SET fam_tag_number = ?, device_type = ?, device_name = ?, serial_number = ?, status = ? 
                     WHERE asset_id = ?";
@@ -61,7 +73,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_asset'])) {
 }
 
 
-// --- 3. FETCH ALL ASSETS (for display) ---
+// --- 4. FETCH ALL ASSETS (with search filter) ---
 $sql_fetch = "
     SELECT 
         a.asset_id, a.fam_tag_number, a.device_type, a.device_name, a.serial_number, a.status, e.name AS current_user_name
@@ -69,11 +81,14 @@ $sql_fetch = "
         assets a
     LEFT JOIN 
         employees e ON a.current_user_id = e.employee_id
+    {$search_condition}
     ORDER BY 
         a.fam_tag_number ASC
 ";
-$stmt_fetch = $pdo->query($sql_fetch);
+$stmt_fetch = $pdo->prepare($sql_fetch);
+$stmt_fetch->execute($search_params);
 $assets = $stmt_fetch->fetchAll();
+$asset_count = count($assets);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -85,7 +100,6 @@ $assets = $stmt_fetch->fetchAll();
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { background-color: #f8f9fa; }
-        /* ... (Sidebar CSS) ... */
         #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
         #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
         #page-content-wrapper { min-width: 100vw; }
@@ -163,7 +177,24 @@ $assets = $stmt_fetch->fetchAll();
             </div>
             
             <div class="card shadow-lg">
-                <div class="card-header bg-white border-bottom">Master Inventory List (<?php echo count($assets); ?> Devices)</div>
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                    <div>Master Inventory List (<?php echo $asset_count; ?> Devices Found)</div>
+                    
+                    <form method="GET" action="inventory.php" class="d-flex" style="width: 300px;">
+                        <input 
+                            class="form-control me-2" 
+                            type="search" 
+                            placeholder="Search Tag, Serial, Type, or Name" 
+                            aria-label="Search" 
+                            name="search"
+                            value="<?php echo htmlspecialchars($search_term); ?>"
+                        >
+                        <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i></button>
+                        <?php if (!empty($search_term)): ?>
+                            <a href="inventory.php" class="btn btn-outline-danger ms-1"><i class="bi bi-x"></i></a>
+                        <?php endif; ?>
+                    </form>
+                    </div>
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-striped table-hover align-middle">
@@ -179,39 +210,51 @@ $assets = $stmt_fetch->fetchAll();
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($assets as $asset): 
-                                    $badge_class = 'bg-secondary';
-                                    if ($asset['status'] == 'In Use') { $badge_class = 'bg-primary'; }
-                                    if ($asset['status'] == 'Available') { $badge_class = 'bg-success'; }
-                                    if ($asset['status'] == 'Broken') { $badge_class = 'bg-danger'; }
-                                    if ($asset['status'] == 'Repairing') { $badge_class = 'bg-info'; }
-                                ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
-                                    <td><?php echo htmlspecialchars($asset['device_type']); ?></td>
-                                    <td><?php echo htmlspecialchars($asset['device_name']); ?></td>
-                                    <td><?php echo htmlspecialchars($asset['serial_number']); ?></td>
-                                    <td><span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($asset['status']); ?></span></td>
-                                    <td>
-                                        <?php echo $asset['current_user_name'] ? htmlspecialchars($asset['current_user_name']) : '<span class="text-muted">Available</span>'; ?>
-                                    </td>
-                                    <td>
-                                        <button 
-                                            class="btn btn-sm btn-outline-warning edit-btn"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#editAssetModal"
-                                            data-id="<?php echo $asset['asset_id']; ?>"
-                                            data-tag="<?php echo htmlspecialchars($asset['fam_tag_number']); ?>"
-                                            data-type="<?php echo htmlspecialchars($asset['device_type']); ?>"
-                                            data-name="<?php echo htmlspecialchars($asset['device_name']); ?>"
-                                            data-serial="<?php echo htmlspecialchars($asset['serial_number']); ?>"
-                                            data-status="<?php echo htmlspecialchars($asset['status']); ?>"
-                                        >
-                                            <i class="bi bi-pencil-square"></i> Edit
-                                        </button>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
+                                <?php if ($asset_count > 0): ?>
+                                    <?php foreach ($assets as $asset): 
+                                        $badge_class = 'bg-secondary';
+                                        if ($asset['status'] == 'In Use') { $badge_class = 'bg-primary'; }
+                                        if ($asset['status'] == 'Available') { $badge_class = 'bg-success'; }
+                                        if ($asset['status'] == 'Broken') { $badge_class = 'bg-danger'; }
+                                        if ($asset['status'] == 'Repairing') { $badge_class = 'bg-info'; }
+                                    ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
+                                        <td><?php echo htmlspecialchars($asset['device_type']); ?></td>
+                                        <td><?php echo htmlspecialchars($asset['device_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($asset['serial_number']); ?></td>
+                                        <td><span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($asset['status']); ?></span></td>
+                                        <td>
+                                            <?php echo $asset['current_user_name'] ? htmlspecialchars($asset['current_user_name']) : '<span class="text-muted">Available</span>'; ?>
+                                        </td>
+                                        <td>
+                                            <button 
+                                                class="btn btn-sm btn-outline-warning edit-btn"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#editAssetModal"
+                                                data-id="<?php echo $asset['asset_id']; ?>"
+                                                data-tag="<?php echo htmlspecialchars($asset['fam_tag_number']); ?>"
+                                                data-type="<?php echo htmlspecialchars($asset['device_type']); ?>"
+                                                data-name="<?php echo htmlspecialchars($asset['device_name']); ?>"
+                                                data-serial="<?php echo htmlspecialchars($asset['serial_number']); ?>"
+                                                data-status="<?php echo htmlspecialchars($asset['status']); ?>"
+                                            >
+                                                <i class="bi bi-pencil-square"></i> Edit
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="7" class="text-center text-muted">
+                                            <?php if (!empty($search_term)): ?>
+                                                No assets found matching "<?php echo htmlspecialchars($search_term); ?>".
+                                            <?php else: ?>
+                                                No assets recorded in the inventory.
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
@@ -285,12 +328,11 @@ $assets = $stmt_fetch->fetchAll();
         wrapper.classList.toggle("toggled");
     });
 
-    // JavaScript to populate the Edit Modal
+    // JavaScript to populate the Edit Modal (Existing logic)
     var editAssetModal = document.getElementById('editAssetModal');
     editAssetModal.addEventListener('show.bs.modal', function (event) {
-        var button = event.relatedTarget; // Button that triggered the modal
+        var button = event.relatedTarget; 
 
-        // Extract data-* attributes from the button
         var assetId = button.getAttribute('data-id');
         var famTag = button.getAttribute('data-tag');
         var type = button.getAttribute('data-type');
@@ -298,7 +340,6 @@ $assets = $stmt_fetch->fetchAll();
         var serial = button.getAttribute('data-serial');
         var status = button.getAttribute('data-status');
 
-        // Update the modal's fields
         var modalTitle = editAssetModal.querySelector('.modal-title');
         var modalAssetId = editAssetModal.querySelector('#edit_asset_id');
         var modalFamTag = editAssetModal.querySelector('#edit_fam_tag_number');
@@ -315,17 +356,10 @@ $assets = $stmt_fetch->fetchAll();
         modalSerial.value = serial;
         modalStatus.value = status; 
         
-        // Temporarily disable 'In Use' option if the asset is currently 'In Use'
-        // This prevents manual removal of an asset from an employee without a log (transmittal)
-        // Although the backend PHP prevents updating current_user_id, this adds front-end UX safety.
         var inUseOption = modalStatus.querySelector('option[value="In Use"]');
         if (inUseOption) {
-            // Check if the current status allows manual change
-            if (status === 'Available' || status === 'Broken' || status === 'Repairing') {
-                inUseOption.disabled = true;
-            } else {
-                inUseOption.disabled = true; // Always disable 'In Use' for simplicity
-            }
+            // Always disable 'In Use' to enforce Transmittal process
+            inUseOption.disabled = true;
         }
     });
 </script>
