@@ -1,64 +1,90 @@
 <?php
-// Include the database connection script
-require_once 'includes/config.php'; // Adjust path if necessary
+require_once 'includes/config.php';
 
-$message = ''; // Variable to store success or error messages
+$message = ''; 
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_employee'])) {
-    // 1. Gather and sanitize input data
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
     $name = filter_input(INPUT_POST, 'name', FILTER_SANITIZE_STRING);
     $department = filter_input(INPUT_POST, 'department', FILTER_SANITIZE_STRING);
     $position = filter_input(INPUT_POST, 'position', FILTER_SANITIZE_STRING);
 
-    // 2. Validate required fields
     if (empty($employee_id) || empty($name) || empty($department) || empty($position)) {
         $message = '<div class="alert alert-danger">All fields are required.</div>';
     } else {
         try {
-            // 3. Prepare the SQL INSERT statement using Prepared Statements (Security!)
             $sql = "INSERT INTO employees (employee_id, name, department, position) VALUES (?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
-            
-            // 4. Execute the statement with the input variables
             $stmt->execute([$employee_id, $name, $department, $position]);
-
             $message = '<div class="alert alert-success">Employee **' . htmlspecialchars($name) . '** added successfully!</div>';
-
         } catch (\PDOException $e) {
-            // Check for duplicate entry error (error code 23000 is common for unique constraint violation)
             if ($e->getCode() == 23000) {
                 $message = '<div class="alert alert-warning">Error: Employee ID **' . htmlspecialchars($employee_id) . '** already exists.</div>';
             } else {
-                // General error message
                 $message = '<div class="alert alert-danger">Database Error: Could not add employee.</div>';
-                // For debugging: echo $e->getMessage();
             }
         }
     }
 }
 
-// 5. Fetch all employees for display table
-$stmt = $pdo->query('SELECT employee_id, name, department, position FROM employees ORDER BY employee_id ASC');
+// Fetch all employees and count their assigned assets
+$sql_fetch = "
+    SELECT 
+        e.employee_id, e.name, e.department, e.position, COUNT(a.asset_id) AS assigned_assets
+    FROM 
+        employees e
+    LEFT JOIN 
+        assets a ON e.employee_id = a.current_user_id
+    GROUP BY
+        e.employee_id, e.name, e.department, e.position
+    ORDER BY 
+        e.employee_id ASC
+";
+$stmt = $pdo->query($sql_fetch);
 $employees = $stmt->fetchAll();
-
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Inventory | Employees</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        /* ... (CSS for sidebar/wrapper from index.php) ... */
+        #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
+        #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
+        #page-content-wrapper { min-width: 100vw; }
+        .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
+        .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
+        .sidebar-nav a[href="employees.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } /* Active for this page */
+        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+    </style>
+</head>
 <body>
 
 <div class="d-flex" id="wrapper">
+    <div class="border-end bg-dark" id="sidebar-wrapper">
+        <div class="sidebar-heading">IT Inventory System</div>
+        <div class="list-group list-group-flush sidebar-nav">
+            <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
+            <a class="list-group-item list-group-item-action bg-dark active" href="employees.php">🧑‍💻 Employees</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+        </div>
+    </div>
     <div id="page-content-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
+            </nav>
+
         <div class="container-fluid p-4">
             <h1 class="mt-4 mb-4">🧑‍💻 Employee Management</h1>
             
             <?php echo $message; ?>
 
-            <div class="card shadow-sm mb-5">
-                <div class="card-header bg-primary text-white">
-                    Add New Employee
-                </div>
+            <div class="card shadow-sm mb-5 border-primary">
+                <div class="card-header bg-primary text-white">Add New Employee</div>
                 <div class="card-body">
                     <form method="POST" action="employees.php">
                         <input type="hidden" name="add_employee" value="1"> 
@@ -86,19 +112,17 @@ $employees = $stmt->fetchAll();
             </div>
             
             <div class="card shadow-lg">
-                <div class="card-header bg-white">
-                    Current Employees List
-                </div>
+                <div class="card-header bg-white border-bottom">Current Employees List</div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover">
+                        <table class="table table-striped table-hover align-middle">
                             <thead>
                                 <tr>
                                     <th>ID</th>
                                     <th>Name</th>
                                     <th>Department</th>
                                     <th>Position</th>
-                                    <th>Assets Assigned</th>
+                                    <th>**Assets Assigned**</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -108,10 +132,10 @@ $employees = $stmt->fetchAll();
                                     <td><?php echo htmlspecialchars($employee['name']); ?></td>
                                     <td><?php echo htmlspecialchars($employee['department']); ?></td>
                                     <td><?php echo htmlspecialchars($employee['position']); ?></td>
-                                    <td><span class="badge bg-secondary">0</span></td> 
+                                    <td><span class="badge bg-secondary"><?php echo $employee['assigned_assets']; ?></span></td> 
                                 </tr>
                                 <?php endforeach; ?>
-                                </tbody>
+                            </tbody>
                         </table>
                     </div>
                 </div>
@@ -120,5 +144,7 @@ $employees = $stmt->fetchAll();
         </div>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

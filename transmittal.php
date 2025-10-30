@@ -1,98 +1,91 @@
 <?php
-// Include the database connection script
-require_once 'includes/config.php'; // Adjust path if necessary
+require_once 'includes/config.php';
 
 $message = ''; 
 
-// 1. Fetch all Employees for 'FROM' and 'TO' dropdowns
+// 1. Fetch data for dropdowns
 try {
     $employees_stmt = $pdo->query('SELECT employee_id, name FROM employees ORDER BY name ASC');
     $employees = $employees_stmt->fetchAll();
-} catch (\PDOException $e) {
-    die("Error fetching employees: " . $e->getMessage());
-}
-
-// 2. Fetch Assets that are either 'Available' or 'In Use'
-try {
+    // Assets: Fetch all relevant assets along with their status and current user ID
     $assets_stmt = $pdo->query("SELECT asset_id, fam_tag_number, device_name, serial_number, status, current_user_id FROM assets WHERE status IN ('Available', 'In Use') ORDER BY fam_tag_number ASC");
     $assets = $assets_stmt->fetchAll();
 } catch (\PDOException $e) {
-    die("Error fetching assets: " . $e->getMessage());
+    die("Error fetching initial data: " . $e->getMessage());
 }
 
-// 3. Handle Form Submission (The Core Transaction)
+// 2. Handle Form Submission (The Core Transaction)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['record_transmittal'])) {
     
     // Sanitize and collect data
     $asset_id = filter_input(INPUT_POST, 'asset_id', FILTER_SANITIZE_NUMBER_INT);
-    $transaction_type = filter_input(INPUT_POST, 'transaction_type', FILTER_SANITIZE_STRING); // 'IN' or 'OUT'
-    $from_id = filter_input(INPUT_POST, 'from_id', FILTER_SANITIZE_NUMBER_INT); // Employee ID or Storage ID (0)
-    $to_id = filter_input(INPUT_POST, 'to_id', FILTER_SANITIZE_NUMBER_INT);       // Employee ID or Storage ID (0)
+    $transaction_type = filter_input(INPUT_POST, 'transaction_type', FILTER_SANITIZE_STRING);
     $remarks = filter_input(INPUT_POST, 'remarks', FILTER_SANITIZE_STRING);
-    $qty = 1; // Assuming QTY is always 1 for single IT assets
-    // Note: Signature data is handled via AJAX/JS and saved as an image or Base64 string
+    $signature_data = $_POST['signature_data']; // Base64 signature data
+    $qty = 1;
 
-    // Retrieve current asset status for validation
+    // ** CRITICAL FIX: Ensure 0 (Inventory ID) is correctly captured as an integer and not NULL **
+    $from_id = filter_input(INPUT_POST, 'from_id', FILTER_SANITIZE_NUMBER_INT);
+    $to_id = filter_input(INPUT_POST, 'to_id', FILTER_SANITIZE_NUMBER_INT);
+    
+    // PHP interprets empty form fields as empty strings. If '0' is disabled/selected, ensure we treat empty as 0.
+    $from_id = ($from_id === false || $from_id === '') ? 0 : (int)$from_id;
+    $to_id = ($to_id === false || $to_id === '') ? 0 : (int)$to_id;
+    // ------------------------------------------------------------------------------------------
+
+    // Retrieve current asset status
     $current_asset_stmt = $pdo->prepare("SELECT status FROM assets WHERE asset_id = ?");
     $current_asset_stmt->execute([$asset_id]);
     $current_status = $current_asset_stmt->fetchColumn();
 
-    // Begin PDO Transaction for atomic operations
     $pdo->beginTransaction();
 
     try {
         $new_asset_status = '';
-        $new_user_id = NULL; // NULL for Available/Storage
+        $new_user_id = NULL; // Assets returning to inventory have NULL for current_user_id
 
         if ($transaction_type === 'OUT') {
-            // Validation: Only assign assets that are currently 'Available'
-            if ($current_status !== 'Available') {
-                throw new Exception("Asset is currently **$current_status**. Cannot issue OUT transmittal.");
-            }
-            // Set new status/user for the asset
+            if ($current_status !== 'Available') { throw new Exception("Asset is currently **$current_status**. Cannot issue OUT transmittal."); }
+            if ($from_id != 0 || $to_id == 0) { throw new Exception("OUT Transmittal must be FROM Inventory (0) TO an Employee."); }
             $new_asset_status = 'In Use';
-            $new_user_id = $to_id; // Assign to the 'TO' employee
+            $new_user_id = $to_id; // Assign to the employee
             
         } elseif ($transaction_type === 'IN') {
-             // Validation: Only return assets that are currently 'In Use'
-            if ($current_status !== 'In Use') {
-                 throw new Exception("Asset is currently **$current_status**. Only 'In Use' assets can be returned via IN transmittal.");
-            }
-            // Set new status/user for the asset
+            if ($current_status !== 'In Use') { throw new Exception("Asset is currently **$current_status**. Only 'In Use' assets can be returned."); }
+            if ($from_id == 0 || $to_id != 0) { throw new Exception("IN Transmittal must be FROM an Employee TO Inventory (0)."); }
             $new_asset_status = 'Available';
-            $new_user_id = NULL; // Return to Storage (NULL user ID)
+            $new_user_id = NULL; // Clear assignment
         } else {
             throw new Exception("Invalid transaction type specified.");
         }
 
         // 1. INSERT into Transmittal Log
-        $sql_transmittal = "INSERT INTO transmittals (asset_id, transaction_type, from_id, to_id, remarks, qty) 
-                            VALUES (?, ?, ?, ?, ?, ?)";
+        // Note: $from_id and $to_id are guaranteed to be integers (0 or employee ID)
+        $sql_transmittal = "INSERT INTO transmittals (asset_id, transaction_type, from_id, to_id, remarks, qty, signature_data) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?)";
         $stmt_transmittal = $pdo->prepare($sql_transmittal);
-        $stmt_transmittal->execute([$asset_id, $transaction_type, $from_id, $to_id, $remarks, $qty]);
+        $stmt_transmittal->execute([$asset_id, $transaction_type, $from_id, $to_id, $remarks, $qty, $signature_data]);
         
         // 2. UPDATE the Assets table
         $sql_asset_update = "UPDATE assets SET status = ?, current_user_id = ? WHERE asset_id = ?";
         $stmt_asset_update = $pdo->prepare($sql_asset_update);
+        // Note: $new_user_id is either an Employee ID (for OUT) or NULL (for IN)
         $stmt_asset_update->execute([$new_asset_status, $new_user_id, $asset_id]);
 
-        // Commit the transaction only if both steps succeeded
         $pdo->commit();
 
         $message = '<div class="alert alert-success">Transmittal recorded successfully! Asset status updated to **' . $new_asset_status . '**.</div>';
 
     } catch (Exception $e) {
-        // Rollback on any error to revert both changes
         $pdo->rollBack();
         $message = '<div class="alert alert-danger">Transaction Failed: ' . htmlspecialchars($e->getMessage()) . '</div>';
     } catch (\PDOException $e) {
         $pdo->rollBack();
         $message = '<div class="alert alert-danger">Database Error: Could not complete transaction.</div>';
-        // For debugging: echo $e->getMessage();
     }
 }
 
-// 4. Fetch the transmittal history for display
+// 3. Fetch the transmittal history for display
 $sql_history = "
     SELECT 
         t.transmittal_date, t.transaction_type, t.remarks, 
@@ -111,25 +104,58 @@ $sql_history = "
 ";
 $history_stmt = $pdo->query($sql_history);
 $transmittal_history = $history_stmt->fetchAll();
-
-// HTML starts below
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Inventory | Transmittal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
+        #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
+        #page-content-wrapper { min-width: 100vw; }
+        .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
+        .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
+        .sidebar-nav a[href="transmittal.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
+        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+    </style>
+</head>
 <body>
 
 <div class="d-flex" id="wrapper">
+    <div class="border-end bg-dark" id="sidebar-wrapper">
+        <div class="sidebar-heading">IT Inventory System</div>
+        <div class="list-group list-group-flush sidebar-nav">
+            <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
+            <a class="list-group-item list-group-item-action bg-dark active" href="transmittal.php">📝 Transmittal Log</a>
+        </div>
+    </div>
     <div id="page-content-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
+            <div class="container-fluid">
+                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
+                <div class="collapse navbar-collapse">
+                    <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">Logout</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
         <div class="container-fluid p-4">
             <h1 class="mt-4 mb-4">📝 Asset Transmittal</h1>
             
             <?php echo $message; ?>
 
-            <div class="card shadow-sm mb-5">
-                <div class="card-header bg-warning text-dark">
-                    Record New Transmittal (IN / OUT)
-                </div>
+            <div class="card shadow-sm mb-5 border-warning">
+                <div class="card-header bg-warning text-dark">Record New Transmittal (IN / OUT)</div>
                 <div class="card-body">
                     <form id="transmittalForm" method="POST" action="transmittal.php">
                         <input type="hidden" name="record_transmittal" value="1"> 
@@ -153,7 +179,6 @@ $transmittal_history = $history_stmt->fetchAll();
                                     <option 
                                         value="<?php echo $asset['asset_id']; ?>" 
                                         data-status="<?php echo $asset['status']; ?>"
-                                        data-user="<?php echo $asset['current_user_id']; ?>"
                                     >
                                         <?php echo htmlspecialchars($asset['fam_tag_number']) . ' - ' . htmlspecialchars($asset['device_name']); ?> 
                                         (Status: <?php echo $asset['status']; ?>)
@@ -166,10 +191,9 @@ $transmittal_history = $history_stmt->fetchAll();
                                 <label for="from_id" class="form-label">FROM</label>
                                 <select class="form-select" id="from_id" name="from_id" required>
                                     <option value="">Select...</option>
-                                    <option value="0">Storage/Inventory</option> <?php foreach ($employees as $employee): ?>
-                                    <option value="<?php echo $employee['employee_id']; ?>">
-                                        <?php echo htmlspecialchars($employee['name']); ?>
-                                    </option>
+                                    <option value="0">Inventory</option>
+                                    <?php foreach ($employees as $employee): ?>
+                                    <option value="<?php echo $employee['employee_id']; ?>"><?php echo htmlspecialchars($employee['name']); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -178,47 +202,37 @@ $transmittal_history = $history_stmt->fetchAll();
                                 <label for="to_id" class="form-label">TO</label>
                                 <select class="form-select" id="to_id" name="to_id" required>
                                     <option value="">Select...</option>
-                                    <option value="0">Storage/Inventory</option> <?php foreach ($employees as $employee): ?>
-                                    <option value="<?php echo $employee['employee_id']; ?>">
-                                        <?php echo htmlspecialchars($employee['name']); ?>
-                                    </option>
+                                    <option value="0">Inventory</option>
+                                    <?php foreach ($employees as $employee): ?>
+                                    <option value="<?php echo $employee['employee_id']; ?>"><?php echo htmlspecialchars($employee['name']); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
                             
-                            <div class="col-md-6">
+                            <div class="col-md-6 mt-4">
                                 <label for="remarks" class="form-label">Remarks</label>
-                                <textarea class="form-control" id="remarks" name="remarks" rows="1"></textarea>
+                                <textarea class="form-control" id="remarks" name="remarks" rows="2"></textarea>
                             </div>
 
-                            <div class="col-md-6">
-                                <label class="form-label d-block">Signature (Required)</label>
-                                <canvas id="signatureCanvas" class="border border-secondary rounded" width="400" height="150" style="background-color: #fff;"></canvas>
+                            <div class="col-md-6 mt-4">
+                                <label class="form-label d-block">Employee Signature (Required)</label>
+                                <canvas id="signatureCanvas" class="border border-secondary rounded" width="450" height="150" style="background-color: #f7f7f7; cursor: crosshair;"></canvas>
                                 <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="clearSignature">Clear Signature</button>
                             </div>
 
                         </div>
-                        <button type="submit" class="btn btn-warning mt-4">Record Transmittal</button>
+                        <button type="submit" class="btn btn-warning mt-4 text-dark fw-bold">Record Transmittal</button>
                     </form>
                 </div>
             </div>
             
             <div class="card shadow-lg">
-                <div class="card-header bg-white">
-                    Recent Transmittal History
-                </div>
+                <div class="card-header bg-white border-bottom">Recent Transmittal History</div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover">
+                        <table class="table table-striped table-hover align-middle">
                             <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Type</th>
-                                    <th>Asset Tag</th>
-                                    <th>From</th>
-                                    <th>To</th>
-                                    <th>Remarks</th>
-                                </tr>
+                                <tr><th>Date/Time</th><th>Type</th><th>Asset Tag</th><th>From</th><th>To</th><th>Remarks</th></tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($transmittal_history as $log): ?>
@@ -231,6 +245,9 @@ $transmittal_history = $history_stmt->fetchAll();
                                     <td><?php echo htmlspecialchars($log['remarks']); ?></td>
                                 </tr>
                                 <?php endforeach; ?>
+                                <?php if (empty($transmittal_history)): ?>
+                                <tr><td colspan="6" class="text-center text-muted">No transmittals recorded yet.</td></tr>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
@@ -240,89 +257,96 @@ $transmittal_history = $history_stmt->fetchAll();
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
-    // 7. Signature Pad Placeholder (You would integrate a library here)
     const canvas = document.getElementById('signatureCanvas');
     const signature_data_input = document.getElementById('signature_data');
     const clearButton = document.getElementById('clearSignature');
     const transmittalForm = document.getElementById('transmittalForm');
+    const transactionType = document.getElementById('transaction_type');
+    const assetSelect = document.getElementById('asset_id');
+    const fromSelect = document.getElementById('from_id');
+    const toSelect = document.getElementById('to_id');
+    const initialAssetOptions = Array.from(assetSelect.options).slice(1);
 
-    // Basic canvas context for demonstration
+    // --- Signature Pad Logic (Simple Canvas Drawing) ---
     const ctx = canvas.getContext('2d');
     let drawing = false;
 
-    // --- Placeholder Drawing Logic ---
-    canvas.addEventListener('mousedown', (e) => {
-        drawing = true;
-        ctx.beginPath();
-        ctx.moveTo(e.offsetX, e.offsetY);
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-        if (!drawing) return;
-        ctx.lineTo(e.offsetX, e.offsetY);
-        ctx.stroke();
-    });
-
-    canvas.addEventListener('mouseup', () => {
-        drawing = false;
-    });
-
-    clearButton.addEventListener('click', () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        signature_data_input.value = '';
-    });
-    // --- End Placeholder Drawing Logic ---
+    canvas.addEventListener('mousedown', (e) => { drawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
+    canvas.addEventListener('mousemove', (e) => { if (!drawing) return; ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); });
+    canvas.addEventListener('mouseup', () => { drawing = false; });
+    clearButton.addEventListener('click', () => { ctx.clearRect(0, 0, canvas.width, canvas.height); signature_data_input.value = ''; });
 
     // Final step before submission: Capture signature data
     transmittalForm.addEventListener('submit', function(e) {
-        // Convert the canvas content to a Base64 image string
         const dataURL = canvas.toDataURL('image/png');
-        
-        // Simple check to ensure a signature was drawn
-        if (dataURL === canvas.toDataURL('image/png', 0)) {
+        if (dataURL.length < 2000) { // Crude check for a blank canvas
             alert("Please provide a signature before recording the transmittal.");
             e.preventDefault();
             return;
         }
 
-        // Set the hidden input value with the signature data
         signature_data_input.value = dataURL;
     });
 
-    // 8. Basic Transmittal Logic/Validation (Client-side)
-    const transactionType = document.getElementById('transaction_type');
-    const assetSelect = document.getElementById('asset_id');
-    const fromSelect = document.getElementById('from_id');
-    const toSelect = document.getElementById('to_id');
+    // --- Client-side Transmittal Filtering Logic ---
+    transactionType.addEventListener('change', filterTransmittalForm);
 
-    // Enforce Transmittal Rules
-    transactionType.addEventListener('change', function() {
-        const type = this.value;
-        const assetOptions = assetSelect.options;
-
-        // Reset the From/To dropdowns
+    function filterTransmittalForm() {
+        const type = transactionType.value;
+        
+        // Reset and clear current options
+        assetSelect.innerHTML = '<option value="">Select Device...</option>';
+        fromSelect.disabled = false;
+        toSelect.disabled = false;
         fromSelect.value = '';
         toSelect.value = '';
 
         if (type === 'OUT') {
-            // OUT: FROM must be Inventory (ID 0). TO must be an Employee.
+            // OUT: FROM must be Inventory (0). TO must be an Employee.
             fromSelect.value = 0;
-            fromSelect.disabled = true; // Lock 'FROM' to Inventory
-            toSelect.disabled = false;
-        } else if (type === 'IN') {
-            // IN: FROM must be an Employee. TO must be Inventory (ID 0).
-            toSelect.value = 0;
-            toSelect.disabled = true; // Lock 'TO' to Inventory
-            fromSelect.disabled = false;
-        } else {
-            fromSelect.disabled = false;
-            toSelect.disabled = false;
-        }
+            fromSelect.disabled = true;
 
-        // You would add JavaScript logic here to filter the assetSelect
-        // to only show 'Available' items for 'OUT' and 'In Use' items for 'IN'.
+            // Filter assets: only show 'Available' assets
+            initialAssetOptions.forEach(option => {
+                if (option.dataset.status === 'Available') {
+                    assetSelect.appendChild(option.cloneNode(true));
+                }
+            });
+            // Ensure the TO dropdown is active and not set to Inventory
+            toSelect.value = ''; 
+            toSelect.disabled = false;
+
+        } else if (type === 'IN') {
+            // IN: FROM must be an Employee. TO must be Inventory (0).
+            toSelect.value = 0;
+            toSelect.disabled = true;
+
+            // Filter assets: only show 'In Use' assets
+            initialAssetOptions.forEach(option => {
+                if (option.dataset.status === 'In Use') {
+                    assetSelect.appendChild(option.cloneNode(true));
+                }
+            });
+            // Ensure the FROM dropdown is active and not set to Inventory
+            fromSelect.value = ''; 
+            fromSelect.disabled = false;
+
+        } else {
+             // If "Select Type..." is chosen, show all filterable assets
+             initialAssetOptions.forEach(option => assetSelect.appendChild(option.cloneNode(true)));
+        }
+    }
+
+    // Initial load setup (to ensure correct options are loaded)
+    filterTransmittalForm(); 
+    document.getElementById("sidebarToggle").addEventListener("click", function() {
+        var wrapper = document.getElementById("wrapper");
+        wrapper.classList.toggle("toggled");
     });
 </script>
+
 </body>
 </html>
