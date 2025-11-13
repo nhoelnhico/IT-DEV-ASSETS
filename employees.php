@@ -108,7 +108,7 @@ $employee_count = count($employees);
         </nav>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4">🧑‍💻 Employee Management</h1>
+            <h1 class="mt-4 mb-4"> Employee Management</h1>
             
             <?php echo $message; ?>
 
