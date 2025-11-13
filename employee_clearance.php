@@ -1,4 +1,5 @@
 <?php
+
 require_once 'includes/config.php';
 
 $employee_data = null;
@@ -113,16 +114,17 @@ if (!empty($employee_id)) {
             box-shadow: none !important;
             margin-bottom: 0;
         }
-        .card-header {
-            /* NEW CUSTOM COLOR: #8CA9FF */
-            background-color: #8CA9FF !important; /* Custom Light Blue Header */
-            color: #000 !important; /* Change text color to black for contrast on light background */
-            border-bottom: 3px solid #000 !important;
-            padding: 10px 0;
-            margin-bottom: 20px;
-            -webkit-print-color-adjust: exact; /* Force color printing */
-            print-color-adjust: exact;
-        }
+       .card-header {
+                /* NEW COLOR: #8CA9FF */
+                background-color: #8CA9FF !important; 
+                /* NEW TEXT COLOR: Black for visibility */
+                color: #000 !important; 
+                border-bottom: 3px solid #000 !important;
+                padding: 10px 0;
+                margin-bottom: 20px;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
         .card-body {
             padding: 0;
         }
@@ -242,7 +244,7 @@ if (!empty($employee_id)) {
 
                 <div class="card shadow-lg mb-5">
                     <div class="card-header border-bottom text-center">
-                        <h3 class="mb-0 text-white">IT ASSET CLEARANCE CHECKLIST</h3>
+                        <h3 class="mb-0 text-white">CHROMAESTHETICS INC </br> IT ASSET CLEARANCE CLEARANCE</h3>
                         <p class="text-white mb-0">Issued on: <?php echo date('Y-m-d'); ?></p>
                     </div>
                     <div class="card-body">
@@ -318,7 +320,7 @@ if (!empty($employee_id)) {
                             </div>
 
                             <div class="col-lg-4 col-md-12">
-                                <div class="signature-box">Approved by: (Management/HR)</div>
+                                <div class="signature-box">Approved by: (IT MANAGER)</div>
                                 <small class="text-muted">Final approval for asset clearance.</small>
                             </div>
                         </div>
