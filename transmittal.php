@@ -133,7 +133,7 @@ $transmittal_history = $history_stmt->fetchAll();
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="transmittal.php">📝 Transmittal Log</a>
-            <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
@@ -180,6 +180,7 @@ $transmittal_history = $history_stmt->fetchAll();
                                     <option 
                                         value="<?php echo $asset['asset_id']; ?>" 
                                         data-status="<?php echo $asset['status']; ?>"
+                                        data-current-user="<?php echo $asset['current_user_id'] ? $asset['current_user_id'] : ''; ?>" 
                                     >
                                         <?php echo htmlspecialchars($asset['fam_tag_number']) . ' - ' . htmlspecialchars($asset['device_name']); ?> 
                                         (Status: <?php echo $asset['status']; ?>)
@@ -269,9 +270,11 @@ $transmittal_history = $history_stmt->fetchAll();
     const assetSelect = document.getElementById('asset_id');
     const fromSelect = document.getElementById('from_id');
     const toSelect = document.getElementById('to_id');
+    
+    // Store original asset options for filtering
     const initialAssetOptions = Array.from(assetSelect.options).slice(1);
 
-    // --- Signature Pad Logic (Simple Canvas Drawing) ---
+    // --- Signature Pad Logic ---
     const ctx = canvas.getContext('2d');
     let drawing = false;
 
@@ -280,21 +283,23 @@ $transmittal_history = $history_stmt->fetchAll();
     canvas.addEventListener('mouseup', () => { drawing = false; });
     clearButton.addEventListener('click', () => { ctx.clearRect(0, 0, canvas.width, canvas.height); signature_data_input.value = ''; });
 
-    // Final step before submission: Capture signature data
     transmittalForm.addEventListener('submit', function(e) {
         const dataURL = canvas.toDataURL('image/png');
-        if (dataURL.length < 2000) { // Crude check for a blank canvas
+        if (dataURL.length < 2000) { 
             alert("Please provide a signature before recording the transmittal.");
             e.preventDefault();
             return;
         }
-
         signature_data_input.value = dataURL;
     });
 
-    // --- Client-side Transmittal Filtering Logic ---
+    // --- Core Transmittal Filtering and Lookup Logic ---
     transactionType.addEventListener('change', filterTransmittalForm);
+    assetSelect.addEventListener('change', lookupAssetUser); 
 
+    /**
+     * Filters asset and employee dropdowns based on IN/OUT type and resets selections.
+     */
     function filterTransmittalForm() {
         const type = transactionType.value;
         
@@ -309,6 +314,7 @@ $transmittal_history = $history_stmt->fetchAll();
             // OUT: FROM must be Inventory (0). TO must be an Employee.
             fromSelect.value = 0;
             fromSelect.disabled = true;
+            toSelect.disabled = false;
 
             // Filter assets: only show 'Available' assets
             initialAssetOptions.forEach(option => {
@@ -316,14 +322,12 @@ $transmittal_history = $history_stmt->fetchAll();
                     assetSelect.appendChild(option.cloneNode(true));
                 }
             });
-            // Ensure the TO dropdown is active and not set to Inventory
-            toSelect.value = ''; 
-            toSelect.disabled = false;
-
+            
         } else if (type === 'IN') {
             // IN: FROM must be an Employee. TO must be Inventory (0).
             toSelect.value = 0;
             toSelect.disabled = true;
+            fromSelect.disabled = false;
 
             // Filter assets: only show 'In Use' assets
             initialAssetOptions.forEach(option => {
@@ -331,18 +335,51 @@ $transmittal_history = $history_stmt->fetchAll();
                     assetSelect.appendChild(option.cloneNode(true));
                 }
             });
-            // Ensure the FROM dropdown is active and not set to Inventory
-            fromSelect.value = ''; 
-            fromSelect.disabled = false;
-
+            
         } else {
-             // If "Select Type..." is chosen, show all filterable assets
-             initialAssetOptions.forEach(option => assetSelect.appendChild(option.cloneNode(true)));
+            // If "Select Type..." is chosen
+            initialAssetOptions.forEach(option => assetSelect.appendChild(option.cloneNode(true)));
+            fromSelect.disabled = false;
+            toSelect.disabled = false;
+        }
+        
+        // Ensure lookup is run after the type changes and assets are filtered
+        lookupAssetUser(); 
+    }
+    
+    /**
+     * Looks up the current user of a selected asset and populates the FROM field for IN transmittals.
+     */
+    function lookupAssetUser() {
+        const type = transactionType.value;
+        const selectedOption = assetSelect.options[assetSelect.selectedIndex];
+        
+        // Reset the FROM field unless we are processing an IN transmittal
+        if (type === 'IN') {
+            fromSelect.value = '';
+        }
+
+        if (type === 'IN' && selectedOption.value) {
+            // Read the data-current-user attribute from the selected asset option
+            const currentUserId = selectedOption.dataset.currentUser;
+            
+            if (currentUserId && currentUserId !== '0') {
+                // Auto-select the employee who currently holds the asset
+                fromSelect.value = currentUserId;
+            } else if (currentUserId === '0') {
+                 // Should not happen if assets are filtered correctly, but good to reset.
+                fromSelect.value = '';
+            } else {
+                 // Asset is selected but user data is missing
+                 alert("Warning: Asset is 'In Use' but current user data is missing. Please select FROM employee manually.");
+            }
         }
     }
 
-    // Initial load setup (to ensure correct options are loaded)
+
+    // Initial load setup 
     filterTransmittalForm(); 
+    
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
