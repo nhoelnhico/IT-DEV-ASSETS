@@ -61,65 +61,118 @@ if (!empty($employee_id)) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { background-color: #f8f9fa; }
-        /* SIDEBAR STYLES (for screen view) */
-        #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
-        #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
-        #page-content-wrapper { min-width: 100vw; }
-        .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
-        .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
-        .sidebar-nav a[href="employee_clearance.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
-        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-
-        /* --- PRINT STYLES (for PDF/Hard Copy) --- */
-        @media print {
-            body { 
-                margin: 0; 
-                padding: 0; 
-                color: #000; 
-                background-color: #fff;
-            }
-            #wrapper { 
-                display: block; 
-                width: 100%; 
-            }
-            #sidebar-wrapper, #search-form-container, #print-controls, .navbar, .alert { 
-                display: none !important; 
-            }
-            #page-content-wrapper { 
-                padding: 0;
-            }
-            .container-fluid { 
-                width: 95%; 
-                padding: 0; 
-                margin: auto; 
-            }
-            .card { 
-                border: 1px solid #000 !important; 
-                box-shadow: none !important;
-                margin-bottom: 20px;
-            }
-            .table-striped > tbody > tr:nth-of-type(odd) > * { 
-                background-color: #f2f2f2 !important; 
-            }
-            .signature-box { 
-                margin-top: 50px; 
-                border-top: 1px solid #000; 
-                width: 300px;
-                text-align: center;
-                padding-top: 5px;
-            }
-            .asset-status {
-                border: 1px solid #000; 
-                padding: 2px 5px;
-                display: inline-block;
-                min-width: 80px;
-                text-align: center;
-                background-color: #f2f2f2;
-                font-size: 0.8rem;
-            }
+    /* --- SCREEN STYLES (for web viewing) --- */
+    body { background-color: #f8f9fa; }
+    #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
+    #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
+    #page-content-wrapper { min-width: 100vw; }
+    .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
+    .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
+    .sidebar-nav a[href="employee_clearance.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
+    @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+    
+    /* --- PRINT STYLES (PDF Design Changes) --- */
+    @page {
+        size: A4;
+        margin: 0.5in; /* Add margins for a cleaner look */
+    }
+    @media print {
+        body { 
+            margin: 0; 
+            padding: 0; 
+            color: #000; 
+            background-color: #fff;
+            font-size: 10pt; /* Smaller font for professionalism */
         }
-    </style>
+        #wrapper { 
+            display: block; 
+            width: 100%; 
+        }
+        /* Hide all UI elements */
+        #sidebar-wrapper, 
+        #search-form-container, 
+        #print-controls, 
+        .navbar, 
+        .alert,
+        /* Assuming the H1 title is still outside the card and needs to be hidden */
+        .container-fluid > h1.mt-4.mb-4 { 
+            display: none !important; 
+        }
+        #page-content-wrapper { 
+            padding: 0;
+        }
+        .container-fluid { 
+            width: 100%; 
+            max-width: none;
+            padding: 0; 
+            margin: 0; 
+        }
+        /* Remove shadows, borders, and rounded corners from main card */
+        .card { 
+            border: none !important; 
+            box-shadow: none !important;
+            margin-bottom: 0;
+        }
+        .card-header {
+            /* NEW CUSTOM COLOR: #8CA9FF */
+            background-color: #8CA9FF !important; /* Custom Light Blue Header */
+            color: #000 !important; /* Change text color to black for contrast on light background */
+            border-bottom: 3px solid #000 !important;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            -webkit-print-color-adjust: exact; /* Force color printing */
+            print-color-adjust: exact;
+        }
+        .card-body {
+            padding: 0;
+        }
+        
+        /* Table Styling */
+        .table {
+            border: 1px solid #000 !important;
+            margin-top: 15px;
+        }
+        .table th, .table td {
+            padding: 5px;
+            border: 1px solid #ccc !important;
+        }
+        .table thead th {
+            background-color: #e9ecef !important; /* Light gray header */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            color: #000;
+            font-weight: bold;
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) > * { 
+            background-color: #f7f7f7 !important; /* Very light shading for rows */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        /* Info Box Styling */
+        .row.mb-4.border.p-3.rounded {
+            border: 1px solid #000 !important;
+            padding: 10px !important;
+            border-radius: 0 !important; /* Remove rounded corners */
+        }
+
+        /* Signature Block Styling */
+        .signature-box { 
+            margin: 50px auto 0 auto;
+            border-top: 1px solid #000; 
+            width: 80%;
+            text-align: center;
+            padding-top: 5px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+        .text-muted.small {
+            font-size: 8pt !important;
+        }
+        
+        .text-primary { color: #000 !important; } /* Make headings black */
+    }
+</style>
 </head>
 <body>
 
@@ -188,9 +241,9 @@ if (!empty($employee_id)) {
                 </div>
 
                 <div class="card shadow-lg mb-5">
-                    <div class="card-header bg-white border-bottom text-center">
-                        <h3 class="mb-0">ASSET CLEARANCE CHECKLIST</h3>
-                        <p class="text-muted mb-0">Issued on: <?php echo date('Y-m-d'); ?></p>
+                    <div class="card-header border-bottom text-center">
+                        <h3 class="mb-0 text-white">IT ASSET CLEARANCE CHECKLIST</h3>
+                        <p class="text-white mb-0">Issued on: <?php echo date('Y-m-d'); ?></p>
                     </div>
                     <div class="card-body">
                         
@@ -202,7 +255,7 @@ if (!empty($employee_id)) {
                             <div class="col-md-6"><strong>Position:</strong> <?php echo htmlspecialchars($employee_data['position']); ?></div>
                         </div>
 
-                        <h5 class="mb-3 text-primary">Assigned Assets (Current Status)</h5>
+                        <h5 class="mt-4 mb-3 text-primary">Assigned Assets (Current Status)</h5>
                         <div class="table-responsive">
                             <table class="table table-bordered table-striped align-middle">
                                 <thead>
@@ -212,8 +265,8 @@ if (!empty($employee_id)) {
                                         <th>Device Type</th>
                                         <th>Device Model</th>
                                         <th>Serial Number</th>
-                                        <th class="text-center">Status</th>
-                                        <th class="text-center">IT Staff Check</th>
+                                        <th class="text-center">Current Status</th>
+                                        <th class="text-center">IT Check (Returned)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -252,14 +305,21 @@ if (!empty($employee_id)) {
                         </div>
                         
                         <h5 class="mt-5 mb-3 text-primary">Clearance Signatures</h5>
-                        <div class="row">
-                            <div class="col-6">
-                                <div class="signature-box">Employee Signature</div>
-                                <small>I confirm the return of all listed assets.</small>
+                        <div class="row text-center">
+                            
+                            <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
+                                <div class="signature-box">Employee Name and Signature</div>
+                                <small class="text-muted">I confirm the return of all listed assets.</small>
                             </div>
-                            <div class="col-6">
-                                <div class="signature-box">IT Department Signature</div>
-                                <small>All listed assets have been returned/accounted for and inventoried.</small>
+                            
+                            <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
+                                <div class="signature-box">Noted by: IT Department</div>
+                                <small class="text-muted">All listed assets have been returned/accounted for.</small>
+                            </div>
+
+                            <div class="col-lg-4 col-md-12">
+                                <div class="signature-box">Approved by: (Management/HR)</div>
+                                <small class="text-muted">Final approval for asset clearance.</small>
                             </div>
                         </div>
 

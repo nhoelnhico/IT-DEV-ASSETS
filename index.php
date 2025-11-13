@@ -46,14 +46,15 @@ try {
     $raw_chart_data = $chart_data_stmt->fetchAll();
 
     foreach ($raw_chart_data as $row) {
-        $asset_status_data[$row['status']] = (int)$row['count'];
+        // Ensure keys exist, especially if you add a 'Repairing' status later
+        $status_key = $row['status'];
+        if (isset($asset_status_data[$status_key])) {
+            $asset_status_data[$status_key] = (int)$row['count'];
+        }
     }
 
 } catch (\PDOException $e) {
-    // In case the DB connection or query fails
-    // Log the error in a real application, for now, we'll just set defaults
-    // error_log("Dashboard DB Error: " . $e->getMessage()); 
-    // echo "Database error: " . $e->getMessage(); // For debugging only, remove in production
+    // Error handling goes here
 }
 ?>
 
@@ -122,6 +123,7 @@ try {
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
@@ -278,8 +280,8 @@ try {
                 ],
                 backgroundColor: [
                     'rgba(13, 110, 253, 0.8)', // Bootstrap primary blue
-                    'rgba(25, 135, 84, 0.8)',  // Bootstrap success green
-                    'rgba(220, 53, 69, 0.8)'   // Bootstrap danger red
+                    'rgba(25, 135, 84, 0.8)',  // Bootstrap success green
+                    'rgba(220, 53, 69, 0.8)'   // Bootstrap danger red
                 ],
                 borderColor: [
                     '#fff',

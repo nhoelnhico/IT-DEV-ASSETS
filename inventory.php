@@ -119,6 +119,7 @@ $asset_count = count($assets);
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="inventory.php">📦 Inventory</a>
             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
