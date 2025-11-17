@@ -18,169 +18,125 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 
 // --- 2. Handle ADD NEW EMPLOYEE ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_employee'])) {
-    $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
+    // UPDATED: Use FILTER_SANITIZE_STRING for employee_id
+    $employee_id = filter_input(INPUT_POST, 'employee_id', **FILTER_SANITIZE_STRING**);
     $name = filter_input(INPUT_POST, 'name', FILTER_SANITIZE_STRING);
     $department = filter_input(INPUT_POST, 'department', FILTER_SANITIZE_STRING);
     $position = filter_input(INPUT_POST, 'position', FILTER_SANITIZE_STRING);
 
     if (empty($employee_id) || empty($name) || empty($department) || empty($position)) {
-        $message = '<div class="alert alert-danger">All fields are required.</div>';
+        $message = '<div class="alert alert-danger" role="alert">All fields are required.</div>';
     } else {
         try {
             $sql = "INSERT INTO employees (employee_id, name, department, position) VALUES (?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$employee_id, $name, $department, $position]);
-            $message = '<div class="alert alert-success">Employee **' . htmlspecialchars($name) . '** added successfully!</div>';
+            $message = '<div class="alert alert-success" role="alert">New employee **' . htmlspecialchars($name) . '** added successfully!</div>';
         } catch (\PDOException $e) {
-            if ($e->getCode() == 23000) {
-                $message = '<div class="alert alert-warning">Error: Employee ID **' . htmlspecialchars($employee_id) . '** already exists.</div>';
+            if ($e->getCode() == 23000) { // Integrity constraint violation (e.g., duplicate employee_id)
+                $message = '<div class="alert alert-danger" role="alert">Error: Employee ID **' . htmlspecialchars($employee_id) . '** already exists.</div>';
             } else {
-                // error_log("Employee Add Error: " . $e->getMessage()); 
-                $message = '<div class="alert alert-danger">Database Error: Could not add employee.</div>';
+                // Generic error handling
+                $message = '<div class="alert alert-danger" role="alert">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
             }
         }
     }
 }
 
-// --- 3. Fetch all employees (with search filter) ---
-$sql_fetch = "
-    SELECT 
-        e.employee_id, e.name, e.department, e.position, COUNT(a.asset_id) AS assigned_assets
-    FROM 
-        employees e
-    LEFT JOIN 
-        assets a ON e.employee_id = a.current_user_id
-    {$search_condition} 
-    GROUP BY
-        e.employee_id, e.name, e.department, e.position
-    ORDER BY 
-        e.employee_id ASC
-";
-$stmt = $pdo->prepare($sql_fetch);
-$stmt->execute($search_params);
-$employees = $stmt->fetchAll();
-$employee_count = count($employees);
-?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Inventory | Employees</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <style>
-        body { background-color: #f8f9fa; }
-        #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
-        #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
-        #page-content-wrapper { min-width: 100vw; }
-        .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
-        .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
-        .sidebar-nav a[href="employees.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } /* Active for this page */
-        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-    </style>
-</head>
-<body>
 
-<div class="d-flex" id="wrapper">
-    <div class="border-end bg-dark" id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Inventory System</div>
-        <div class="list-group list-group-flush sidebar-nav">
-            <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
-            <a class="list-group-item list-group-item-action bg-dark active" href="employees.php">🧑‍💻 Employees</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
-            <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
-        </div>
-    </div>
+// --- 3. Fetch All Employees with Asset Count ---
+$sql_employees = "
+    SELECT 
+        e.employee_id, e.name, e.department, e.position,
+        COUNT(a.asset_id) AS assigned_assets
+    FROM employees e
+    LEFT JOIN assets a ON e.employee_id = a.current_user_id
+    {$search_condition}
+    GROUP BY e.employee_id, e.name, e.department, e.position
+    ORDER BY e.name ASC
+";
+
+$stmt_employees = $pdo->prepare($sql_employees);
+$stmt_employees->execute($search_params);
+$employees = $stmt_employees->fetchAll();
+
+$pageTitle = "Employees List";
+include 'includes/header.php';
+?>
+
+<div id="wrapper">
+    <?php include 'includes/sidebar.php'; ?>
+
     <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
-            <div class="container-fluid">
-                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
-                <div class="collapse navbar-collapse">
-                    <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">Logout</a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </nav>
+        <?php include 'includes/navbar.php'; ?>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4"> Employee Management</h1>
-            
+            <h1 class="mt-4 mb-4 text-white">Employees Management</h1>
+
             <?php echo $message; ?>
 
-            <div class="card shadow-sm mb-5 border-primary">
-                <div class="card-header bg-primary text-white">Add New Employee</div>
+            <div class="card shadow mb-4 bg-dark text-white">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="m-0 font-weight-bold">Add New Employee</h5>
+                </div>
                 <div class="card-body">
-                    <form method="POST" action="employees.php">
-                        <input type="hidden" name="add_employee" value="1"> 
+                    <form method="POST">
+                        <input type="hidden" name="add_employee" value="1">
                         <div class="row g-3">
                             <div class="col-md-3">
-                                <label for="employee_id" class="form-label">Employee ID</label>
+                                <label for="employee_id" class="form-label">Employee ID (VARCHAR)</label>
                                 <input type="text" class="form-control" id="employee_id" name="employee_id" required>
                             </div>
-                            <div class="col-md-5">
+                            <div class="col-md-3">
                                 <label for="name" class="form-label">Name</label>
                                 <input type="text" class="form-control" id="name" name="name" required>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <label for="department" class="form-label">Department</label>
                                 <input type="text" class="form-control" id="department" name="department" required>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <label for="position" class="form-label">Position</label>
                                 <input type="text" class="form-control" id="position" name="position" required>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary mt-4">Add Employee</button>
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary">Add Employee</button>
+                        </div>
                     </form>
                 </div>
             </div>
-            
-            <div class="card shadow-lg">
-                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                    <div>Current Employees List (<?php echo $employee_count; ?> Found)</div>
-                    
-                    <form method="GET" action="employees.php" class="d-flex" style="width: 300px;">
-                        <input 
-                            class="form-control me-2" 
-                            type="search" 
-                            placeholder="Search Name, ID, Dept, or Position" 
-                            aria-label="Search" 
-                            name="search"
-                            value="<?php echo htmlspecialchars($search_term); ?>"
-                        >
-                        <button class="btn btn-outline-success" type="submit"><i class="bi bi-search"></i></button>
+
+
+            <div class="card shadow mb-4 bg-dark text-white">
+                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="m-0 font-weight-bold">All Employees</h5>
+                    <form method="GET" class="d-flex" role="search">
+                        <input class="form-control me-2" type="search" placeholder="Search Name, ID, Dept, Position" aria-label="Search" name="search" value="<?php echo htmlspecialchars($search_term); ?>">
+                        <button class="btn btn-outline-light" type="submit">Search</button>
                         <?php if (!empty($search_term)): ?>
-                            <a href="employees.php" class="btn btn-outline-danger ms-1"><i class="bi bi-x"></i></a>
+                            <a href="employees.php" class="btn btn-outline-danger ms-2" title="Clear Search">X</a>
                         <?php endif; ?>
                     </form>
-                    </div>
+                </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover align-middle">
+                        <table class="table table-dark table-striped">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
+                                    <th>Employee ID</th>
                                     <th>Name</th>
                                     <th>Department</th>
                                     <th>Position</th>
-                                    <th>**Assets Assigned**</th>
+                                    <th>Assigned Assets</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if ($employee_count > 0): ?>
+                                <?php if (count($employees) > 0): ?>
                                     <?php foreach ($employees as $employee): ?>
-                                    <tr>
+                                    <tr onclick="window.location='employee_details.php?id=<?php echo urlencode($employee['employee_id']); ?>'" style="cursor: pointer;">
                                         <td><?php echo htmlspecialchars($employee['employee_id']); ?></td>
-                                        <td>
-                                            <a href="employee_details.php?id=<?php echo $employee['employee_id']; ?>">
-                                                <?php echo htmlspecialchars($employee['name']); ?>
-                                            </a>
-                                        </td>
+                                        <td><?php echo htmlspecialchars($employee['name']); ?></td>
                                         <td><?php echo htmlspecialchars($employee['department']); ?></td>
                                         <td><?php echo htmlspecialchars($employee['position']); ?></td>
                                         <td><span class="badge bg-secondary"><?php echo $employee['assigned_assets']; ?></span></td> 
