@@ -141,6 +141,7 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IT Inventory | Transmittal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <style>
         body { background-color: #f8f9fa; }
         #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
@@ -150,6 +151,18 @@ try {
         .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
         .sidebar-nav a[href="transmittal.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
         @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+        
+        /* Select2 Fixes for Bootstrap 5 */
+        .select2-container .select2-selection--single {
+            height: 38px !important;
+        }
+        .select2-container .select2-selection--single .select2-selection__rendered {
+            line-height: 38px !important;
+            padding-left: 0.75rem !important; /* Match Bootstrap padding */
+        }
+        .select2-container .select2-selection--single .select2-selection__arrow {
+            height: 36px !important;
+        }
         
         /* === Print Styles Fix === */
         @media print {
@@ -252,7 +265,7 @@ try {
 
                             <div class="col-md-2">
                                 <label for="from_id" class="form-label">FROM</label>
-                                <select class="form-select" id="from_id" name="from_id" required>
+                                <select class="form-select select2-employee" id="from_id" name="from_id" style="width: 100%;" required>
                                     <option value="">Select...</option>
                                     <option value="0">Inventory</option>
                                     <?php foreach ($employees as $employee): ?>
@@ -263,7 +276,7 @@ try {
 
                             <div class="col-md-2">
                                 <label for="to_id" class="form-label">TO</label>
-                                <select class="form-select" id="to_id" name="to_id" required>
+                                <select class="form-select select2-employee" id="to_id" name="to_id" style="width: 100%;" required>
                                     <option value="">Select...</option>
                                     <option value="0">Inventory</option>
                                     <?php foreach ($employees as $employee): ?>
@@ -342,6 +355,8 @@ try {
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script> 
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
     const canvas = document.getElementById('signatureCanvas');
@@ -355,6 +370,14 @@ try {
     
     // Store original asset options for filtering
     const initialAssetOptions = Array.from(assetSelect.options).slice(1);
+    
+    // --- Select2 Initialization ---
+    $(document).ready(function() {
+        $('.select2-employee').select2({
+            placeholder: 'Search for Employee or Inventory...',
+            allowClear: false // Since selection is required
+        });
+    });
 
     // --- Signature Pad Logic ---
     const ctx = canvas.getContext('2d');
@@ -366,6 +389,13 @@ try {
     clearButton.addEventListener('click', () => { ctx.clearRect(0, 0, canvas.width, canvas.height); signature_data_input.value = ''; });
 
     transmittalForm.addEventListener('submit', function(e) {
+        // Validation check for Select2 fields *before* checking signature
+        if ($('#from_id').val() === null || $('#from_id').val() === '' || $('#to_id').val() === null || $('#to_id').val() === '') {
+             // Select2 handles visual required warning, but this is a fallback.
+             e.preventDefault();
+             return;
+        }
+
         const dataURL = canvas.toDataURL('image/png');
         if (dataURL.length < 2000) { 
             alert("Please provide a signature before recording the transmittal.");
@@ -385,16 +415,16 @@ try {
     function filterTransmittalForm() {
         const type = transactionType.value;
         
-        // Reset and clear current options
+        // Reset asset options
         assetSelect.innerHTML = '<option value="">Select Device...</option>';
-        fromSelect.disabled = false;
-        toSelect.disabled = false;
-        fromSelect.value = '';
-        toSelect.value = '';
+        
+        // Reset and clear Select2 fields
+        $('#from_id').val(null).trigger('change');
+        $('#to_id').val(null).trigger('change');
 
         if (type === 'OUT') {
             // OUT: FROM must be Inventory (0). TO must be an Employee.
-            fromSelect.value = 0;
+            $('#from_id').val('0').trigger('change');
             fromSelect.disabled = true;
             toSelect.disabled = false;
 
@@ -407,7 +437,7 @@ try {
             
         } else if (type === 'IN') {
             // IN: FROM must be an Employee. TO must be Inventory (0).
-            toSelect.value = 0;
+            $('#to_id').val('0').trigger('change');
             toSelect.disabled = true;
             fromSelect.disabled = false;
 
@@ -425,6 +455,10 @@ try {
             toSelect.disabled = false;
         }
         
+        // Update Select2 disabled state to match the select element's disabled property
+        $('#from_id').select2().prop('disabled', fromSelect.disabled);
+        $('#to_id').select2().prop('disabled', toSelect.disabled);
+        
         // Ensure lookup is run after the type changes and assets are filtered
         lookupAssetUser(); 
     }
@@ -438,7 +472,7 @@ try {
         
         // Reset the FROM field unless we are processing an IN transmittal
         if (type === 'IN') {
-            fromSelect.value = '';
+            $('#from_id').val(null).trigger('change');
         }
 
         if (type === 'IN' && selectedOption.value) {
@@ -446,13 +480,13 @@ try {
             const currentUserId = selectedOption.dataset.currentUser;
             
             if (currentUserId && currentUserId !== '0') {
-                // Auto-select the employee who currently holds the asset
-                fromSelect.value = currentUserId;
-            } else if (currentUserId === '0') {
-                 // Should not happen if assets are filtered correctly, but good to reset.
-                fromSelect.value = '';
-            } else {
-                 // Asset is selected but user data is missing
+                // Auto-select the employee who currently holds the asset (Select2 compatible)
+                $('#from_id').val(currentUserId).trigger('change');
+            } else if (currentUserId === '0' || !currentUserId) {
+                 // Asset is selected but user data is missing or user ID is 0
+                 // Prompt user to select manually, ensuring the field is enabled.
+                 fromSelect.disabled = false;
+                 $('#from_id').select2().prop('disabled', false);
                  alert("Warning: Asset is 'In Use' but current user data is missing. Please select FROM employee manually.");
             }
         }
