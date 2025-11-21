@@ -4,7 +4,7 @@
  */
 
 // Database credentials for XAMPP MySQL
-$host = 'localhost';
+$host = '10.28.120.199'; //localhost 
 $db   = 'it_inventory_assets'; // The database name you created
 $user = 'root';              // Default XAMPP user
 $pass = '';                  // Default XAMPP password (often empty)
