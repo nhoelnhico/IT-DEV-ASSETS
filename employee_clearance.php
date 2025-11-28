@@ -49,7 +49,7 @@ if (!empty($employee_id)) {
             $stmt_assets->execute([$employee_id]);
             $assigned_assets = $stmt_assets->fetchAll();
             
-            // 3. CORRECT FIX: Fetch Assigned Software Licenses from the new tables
+            // 3. Fetch Assigned Software Licenses
             $sql_software = "
                 SELECT 
                     s.name, s.version, s.license_type, sa.license_key
@@ -99,7 +99,7 @@ $total_assigned = count($assigned_assets) + count($assigned_software);
     /* --- PRINT STYLES (PDF Design Changes) --- */
     @page {
         size: A4;
-        margin: 0.5in; /* Add margins for a cleaner look */
+        margin: 0.3in; /* TIGHTER MARGIN */
     }
     @media print {
         body { 
@@ -143,8 +143,8 @@ $total_assigned = count($assigned_assets) + count($assigned_software);
                 /* NEW TEXT COLOR: Black for visibility */
                 color: #000 !important; 
                 border-bottom: 3px solid #000 !important;
-                padding: 10px 0;
-                margin-bottom: 20px;
+                padding: 5px 0 !important; /* REDUCED PADDING */
+                margin-bottom: 10px !important; /* REDUCED MARGIN */
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
@@ -179,11 +179,12 @@ $total_assigned = count($assigned_assets) + count($assigned_software);
             border: 1px solid #000 !important;
             padding: 10px !important;
             border-radius: 0 !important; /* Remove rounded corners */
+            margin-bottom: 10px !important; /* Reduced margin */
         }
 
         /* Signature Block Styling */
         .signature-box { 
-            margin: 50px auto 0 auto;
+            margin: 20px auto 0 auto; /* REDUCED TOP MARGIN */
             border-top: 1px solid #000; 
             width: 80%;
             text-align: center;
@@ -196,6 +197,11 @@ $total_assigned = count($assigned_assets) + count($assigned_software);
         }
         
         .text-primary { color: #000 !important; } /* Make headings black */
+        
+        /* Reduce final report margin */
+        p.mt-5.text-muted.small {
+            margin-top: 20px !important; 
+        }
     }
 </style>
 </head>
@@ -208,8 +214,9 @@ $total_assigned = count($assigned_assets) + count($assigned_software);
             <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software</a> 
-            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software Inventory</a> 
+            <a class="list-group-item list-group-item-action bg-dark" href="software_assignment.php">🔑 License Assignment</a>
+             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a> 
             <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
@@ -242,7 +249,7 @@ $total_assigned = count($assigned_assets) + count($assigned_software);
                                         value="<?php echo $emp['employee_id']; ?>" 
                                         <?php echo ($emp['employee_id'] == $employee_id) ? 'selected' : ''; ?>
                                     >
-                                        <?php echo htmlspecialchars($emp['name']) . ' (' . htmlspecialchars($emp['employee_id']) . ')'; ?>
+                                        <?php echo htmlspecialchars($emp['name']) . ' (ID: ' . htmlspecialchars($emp['employee_id']) . ')'; ?>
                                     </option>
                                     <?php endforeach; ?>
                                 </select>
