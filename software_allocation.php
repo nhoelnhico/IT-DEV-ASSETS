@@ -2,17 +2,23 @@
 require_once 'includes/config.php'; 
 
 $message = ''; 
-$error_message = '';
 $allocations = [];
+// Note: We use the existing Transmittal JS/CSS, so we include Select2.
 
 // 1. Fetch data for dropdowns
 try {
     $employees_stmt = $pdo->query('SELECT employee_id, name FROM employees ORDER BY name ASC');
     $employees = $employees_stmt->fetchAll();
     
-    // Fetch software licenses that have licenses available (total > in_use)
-    $software_stmt = $pdo->query("SELECT software_id, name, total_licenses, licenses_in_use FROM software_licenses WHERE total_licenses > licenses_in_use ORDER BY name ASC");
-    $available_software = $software_stmt->fetchAll();
+    // Fetch all software licenses (Allocation/Revocation uses all, but the dropdown visualizes availability)
+    $software_stmt = $pdo->query("
+        SELECT 
+            software_id, name, total_licenses, licenses_in_use 
+        FROM 
+            software_licenses 
+        ORDER BY name ASC
+    ");
+    $all_software = $software_stmt->fetchAll();
 
     // Fetch all allocated and active software for the table
     $sql_allocations = "
@@ -37,12 +43,13 @@ try {
     die("Error fetching initial data: " . $e->getMessage());
 }
 
-// 2. Handle Form Submission (The Core Transaction: Allocate/Revoke)
+// 2. Handle Form Submission (Allocate/Revoke)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['record_allocation'])) {
     
     $software_id = filter_input(INPUT_POST, 'software_id', FILTER_SANITIZE_NUMBER_INT);
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
     $action_type = filter_input(INPUT_POST, 'action_type', FILTER_SANITIZE_STRING); // 'ALLOCATE' or 'REVOKE'
+    $software_name_hidden = filter_input(INPUT_POST, 'software_name_hidden', FILTER_SANITIZE_STRING);
     
     if (empty($software_id) || empty($employee_id) || !in_array($action_type, ['ALLOCATE', 'REVOKE'])) {
         $message = '<div class="alert alert-danger">All fields are required for the transaction.</div>';
@@ -51,56 +58,64 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['record_allocation'])) 
             $pdo->beginTransaction();
 
             if ($action_type === 'ALLOCATE') {
-                // Check if a license is available before allocating
+                // Check license availability
                 $check_licenses = $pdo->prepare("SELECT total_licenses, licenses_in_use FROM software_licenses WHERE software_id = ?");
                 $check_licenses->execute([$software_id]);
                 $license_data = $check_licenses->fetch();
                 
                 if ($license_data && $license_data['licenses_in_use'] < $license_data['total_licenses']) {
-                    // 1. Insert new allocation record
-                    $sql_insert = "INSERT INTO employee_software (software_id, employee_id, status) VALUES (?, ?, 'Allocated')";
-                    $stmt_insert = $pdo->prepare($sql_insert);
-                    $stmt_insert->execute([$software_id, $employee_id]);
-                    
-                    // 2. Update licenses_in_use count in software_licenses (INCREMENT)
-                    $sql_update_count = "UPDATE software_licenses SET licenses_in_use = licenses_in_use + 1 WHERE software_id = ?";
-                    $stmt_update_count = $pdo->prepare($sql_update_count);
-                    $stmt_update_count->execute([$software_id]);
+                    // Check if employee already has an active license for this software (prevent duplicates)
+                    $check_active = $pdo->prepare("SELECT COUNT(*) FROM employee_software WHERE software_id = ? AND employee_id = ? AND status = 'Allocated'");
+                    $check_active->execute([$software_id, $employee_id]);
+                    if ($check_active->fetchColumn() > 0) {
+                        $message = '<div class="alert alert-warning">WARNING: Employee ID ' . htmlspecialchars($employee_id) . ' already has an active license for **' . htmlspecialchars($software_name_hidden) . '**.</div>';
+                        $pdo->rollBack();
+                    } else {
+                        // 1. Insert new allocation record
+                        $sql_insert = "INSERT INTO employee_software (software_id, employee_id, status) VALUES (?, ?, 'Allocated')";
+                        $stmt_insert = $pdo->prepare($sql_insert);
+                        $stmt_insert->execute([$software_id, $employee_id]);
+                        
+                        // 2. Update licenses_in_use count (INCREMENT)
+                        $sql_update_count = "UPDATE software_licenses SET licenses_in_use = licenses_in_use + 1 WHERE software_id = ?";
+                        $stmt_update_count = $pdo->prepare($sql_update_count);
+                        $stmt_update_count->execute([$software_id]);
 
-                    $message = '<div class="alert alert-success">Successfully **Allocated** a license for **' . htmlspecialchars($_POST['software_name_hidden']) . '** to employee ID ' . htmlspecialchars($employee_id) . '.</div>';
+                        $message = '<div class="alert alert-success">Successfully **Allocated** a license for **' . htmlspecialchars($software_name_hidden) . '** to employee ID ' . htmlspecialchars($employee_id) . '.</div>';
+                    }
                 } else {
-                    $message = '<div class="alert alert-danger">ERROR: No licenses available for this software.</div>';
+                    $message = '<div class="alert alert-danger">ERROR: No licenses available for **' . htmlspecialchars($software_name_hidden) . '**.</div>';
                     $pdo->rollBack();
                 }
 
             } elseif ($action_type === 'REVOKE') {
-                // To revoke, we need the specific active allocation_id for the employee and software
+                // Find the allocation record to revoke
                 $sql_find_allocation = "SELECT allocation_id FROM employee_software WHERE software_id = ? AND employee_id = ? AND status = 'Allocated'";
                 $stmt_find = $pdo->prepare($sql_find_allocation);
                 $stmt_find->execute([$software_id, $employee_id]);
                 $allocation_id = $stmt_find->fetchColumn();
 
                 if ($allocation_id) {
-                     // 1. Update the allocation record to 'Revoked' and set date_revoked
+                    // 1. Update the allocation record to 'Revoked'
                     $sql_update_status = "UPDATE employee_software SET status = 'Revoked', date_revoked = NOW() WHERE allocation_id = ?";
                     $stmt_update_status = $pdo->prepare($sql_update_status);
                     $stmt_update_status->execute([$allocation_id]);
                     
-                    // 2. Update licenses_in_use count in software_licenses (DECREMENT)
+                    // 2. Update licenses_in_use count (DECREMENT)
                     $sql_update_count = "UPDATE software_licenses SET licenses_in_use = licenses_in_use - 1 WHERE software_id = ?";
                     $stmt_update_count = $pdo->prepare($sql_update_count);
                     $stmt_update_count->execute([$software_id]);
 
-                    $message = '<div class="alert alert-warning">Successfully **Revoked** a license for **' . htmlspecialchars($_POST['software_name_hidden']) . '** from employee ID ' . htmlspecialchars($employee_id) . '.</div>';
+                    $message = '<div class="alert alert-warning">Successfully **Revoked** a license for **' . htmlspecialchars($software_name_hidden) . '** from employee ID ' . htmlspecialchars($employee_id) . '.</div>';
                 } else {
-                    $message = '<div class="alert alert-danger">ERROR: No active license found for this employee and software combination.</div>';
+                    $message = '<div class="alert alert-danger">ERROR: No active license found for this employee and software combination to revoke.</div>';
                     $pdo->rollBack();
                 }
             }
             
             $pdo->commit();
             // Redirect to refresh the page and clear POST data
-            header('Location: software_allocation.php?message=' . urlencode(strip_tags($message)));
+            header('Location: software_allocation.php?status_message=' . urlencode(strip_tags($message)));
             exit;
 
         } catch (\PDOException $e) {
@@ -110,9 +125,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['record_allocation'])) 
     }
 }
 
-// Check for message in URL after redirect
-if (isset($_GET['message'])) {
-    $message = '<div class="alert alert-success">' . htmlspecialchars($_GET['message']) . '</div>';
+// Check for status message in URL after redirect
+if (isset($_GET['status_message'])) {
+    $message = '<div class="alert alert-success">' . htmlspecialchars($_GET['status_message']) . '</div>';
 }
 
 ?>
@@ -127,14 +142,13 @@ if (isset($_GET['message'])) {
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
     <style>
-        /* Replicate the sidebar and main content wrapper styles from other pages */
+        /* ... (Existing CSS for sidebar, etc. remains here) ... */
         body { background-color: #f8f9fa; }
         #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
         #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
         #page-content-wrapper { min-width: 100vw; }
         .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
         .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
-        /* Add active styling for this new page, linking it to the 'Software' sidebar item */
         .sidebar-nav a[href="software_inventory.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
         @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
     </style>
@@ -161,7 +175,7 @@ if (isset($_GET['message'])) {
         </nav>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4">📝 Software License Allocation</h1>
+            <h1 class="mt-4 mb-4">📝 Software License Allocation (Transmittal)</h1>
             
             <?php echo $message; ?>
 
@@ -184,21 +198,23 @@ if (isset($_GET['message'])) {
                             <div class="col-md-4">
                                 <label for="software_id" class="form-label">Software License</label>
                                 <select class="form-select select2-enabled" id="software_id" name="software_id" required>
-                                    <option value="" data-inuse="0">Select Software...</option>
-                                    <?php foreach ($available_software as $software): 
+                                    <option value="">Select Software...</option>
+                                    <?php foreach ($all_software as $software): 
+                                        $available_count = $software['total_licenses'] - $software['licenses_in_use'];
                                         $label = htmlspecialchars($software['name']) . 
-                                                 ' (Avail: ' . ($software['total_licenses'] - $software['licenses_in_use']) . 
+                                                 ' (Avail: ' . $available_count . 
                                                  '/' . $software['total_licenses'] . ')';
                                     ?>
                                     <option 
                                         value="<?php echo $software['software_id']; ?>" 
                                         data-name="<?php echo htmlspecialchars($software['name']); ?>"
+                                        data-available="<?php echo $available_count; ?>"
                                     >
                                         <?php echo $label; ?>
                                     </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <small class="text-muted">Only software with available licenses are listed for ALLOCATE.</small>
+                                <small class="text-muted" id="license_tip">Select **ALLOCATE** to see only licenses with remaining availability.</small>
                             </div>
                             <div class="col-md-4">
                                 <label for="employee_id" class="form-label">Employee Name or ID</label>
@@ -226,7 +242,7 @@ if (isset($_GET['message'])) {
                         <table class="table table-striped table-hover align-middle">
                             <thead>
                                 <tr>
-                                    <th>Allocation ID</th>
+                                    <th>ID</th>
                                     <th>Software Name</th>
                                     <th>Employee ID</th>
                                     <th>Employee Name</th>
@@ -260,8 +276,8 @@ if (isset($_GET['message'])) {
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
     $(document).ready(function() {
@@ -278,14 +294,59 @@ if (isset($_GET['message'])) {
             $("#wrapper").toggleClass("toggled");
         });
 
+        // Function to filter software dropdown based on action type
+        function filterSoftwareDropdown() {
+            const actionType = $('#action_type').val();
+            const softwareSelect = $('#software_id');
+            const licenseTip = $('#license_tip');
+
+            softwareSelect.find('option').each(function() {
+                // Skip the placeholder option
+                if ($(this).val() === '') return;
+
+                const availableCount = parseInt($(this).data('available'));
+                const optionElement = $(this);
+
+                if (actionType === 'ALLOCATE') {
+                    // Show only if available count is > 0
+                    if (availableCount > 0) {
+                        optionElement.show();
+                    } else {
+                        optionElement.hide();
+                    }
+                    licenseTip.text('Only licenses with remaining availability are shown for ALLOCATE.');
+                } else if (actionType === 'REVOKE') {
+                    // Show all software for revocation (you must manually select the employee)
+                    optionElement.show();
+                    licenseTip.text('All software is shown for REVOKE. Ensure the employee has an active license for the selected software.');
+                } else {
+                    // Default state
+                    optionElement.show();
+                    licenseTip.text('Select an Action Type first (Allocate or Revoke).');
+                }
+            });
+
+            // Re-render Select2
+            softwareSelect.select2('destroy');
+            softwareSelect.select2({
+                theme: "bootstrap-5",
+                width: '100%',
+                placeholder: 'Select Software...'
+            });
+        }
+
+        // Event listener for action type change
+        $('#action_type').on('change', filterSoftwareDropdown);
+        
         // Logic to update hidden software name field for POST
         $('#software_id').on('change', function() {
             var selectedOption = $('#software_id option:selected');
             var softwareName = selectedOption.data('name');
             $('#software_name_hidden').val(softwareName);
         });
-        
-        // Initial setup for hidden name field
+
+        // Initial filtering/setup
+        filterSoftwareDropdown();
         $('#software_id').trigger('change');
     });
 </script>
