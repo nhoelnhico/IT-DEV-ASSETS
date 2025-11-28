@@ -4,7 +4,6 @@ require_once 'includes/config.php';
 
 $employee_data = null;
 $assigned_assets = [];
-$assigned_software = []; // NEW ARRAY
 $employee_id = '';
 $employees_list = [];
 
@@ -20,6 +19,7 @@ try {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['select_employee'])) {
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
 } elseif (isset($_GET['id'])) {
+    // Allows direct linking/testing with ?id=123
     $employee_id = filter_input(INPUT_GET, 'id', FILTER_SANITIZE_NUMBER_INT);
 }
 
@@ -32,7 +32,7 @@ if (!empty($employee_id)) {
         $employee_data = $stmt_employee->fetch();
 
         if ($employee_data) {
-            // 2. Fetch Assigned Assets (Hardware - Existing Logic)
+            // 2. Fetch Assigned Assets
             $sql_assets = "
                 SELECT 
                     fam_tag_number, device_type, device_name, serial_number, status
@@ -46,32 +46,12 @@ if (!empty($employee_id)) {
             $stmt_assets = $pdo->prepare($sql_assets);
             $stmt_assets->execute([$employee_id]);
             $assigned_assets = $stmt_assets->fetchAll();
-
-            // 3. Fetch Assigned Software Licenses (NEW LOGIC)
-            $sql_software = "
-                SELECT 
-                    s.name AS software_name, s.license_type, es.date_allocated
-                FROM 
-                    employee_software es
-                JOIN 
-                    software_licenses s ON es.software_id = s.software_id
-                WHERE 
-                    es.employee_id = ? AND es.status = 'Allocated'
-                ORDER BY 
-                    s.name ASC
-            ";
-            $stmt_software = $pdo->prepare($sql_software);
-            $stmt_software->execute([$employee_id]);
-            $assigned_software = $stmt_software->fetchAll();
         }
 
     } catch (\PDOException $e) {
         $error_message = "Database Error: Could not retrieve data.";
     }
 }
-
-// Combine counts for clearance note
-$total_assigned_items = count($assigned_assets) + count($assigned_software);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -82,17 +62,62 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-    /* ... (Existing SCREEN STYLES) ... */
+    /* --- SCREEN STYLES (for web viewing) --- */
+    body { background-color: #f8f9fa; }
+    #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
+    #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
+    #page-content-wrapper { min-width: 100vw; }
+    .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
+    .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
+    .sidebar-nav a[href="employee_clearance.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
+    @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
     
     /* --- PRINT STYLES (PDF Design Changes) --- */
     @page {
         size: A4;
-        margin: 0.5in;
+        margin: 0.5in; /* Add margins for a cleaner look */
     }
     @media print {
-        /* ... (Existing PRINT STYLES) ... */
-        .card-header {
+        body { 
+            margin: 0; 
+            padding: 0; 
+            color: #000; 
+            background-color: #fff;
+            font-size: 10pt; /* Smaller font for professionalism */
+        }
+        #wrapper { 
+            display: block; 
+            width: 100%; 
+        }
+        /* Hide all UI elements */
+        #sidebar-wrapper, 
+        #search-form-container, 
+        #print-controls, 
+        .navbar, 
+        .alert,
+        /* Assuming the H1 title is still outside the card and needs to be hidden */
+        .container-fluid > h1.mt-4.mb-4 { 
+            display: none !important; 
+        }
+        #page-content-wrapper { 
+            padding: 0;
+        }
+        .container-fluid { 
+            width: 100%; 
+            max-width: none;
+            padding: 0; 
+            margin: 0; 
+        }
+        /* Remove shadows, borders, and rounded corners from main card */
+        .card { 
+            border: none !important; 
+            box-shadow: none !important;
+            margin-bottom: 0;
+        }
+       .card-header {
+                /* NEW COLOR: #8CA9FF */
                 background-color: #8CA9FF !important; 
+                /* NEW TEXT COLOR: Black for visibility */
                 color: #000 !important; 
                 border-bottom: 3px solid #000 !important;
                 padding: 10px 0;
@@ -100,37 +125,55 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
+        .card-body {
+            padding: 0;
+        }
+        
+        /* Table Styling */
         .table {
             border: 1px solid #000 !important;
             margin-top: 15px;
-            margin-bottom: 30px !important; /* Added space between tables */
         }
         .table th, .table td {
             padding: 5px;
             border: 1px solid #ccc !important;
         }
         .table thead th {
-            background-color: #e9ecef !important;
+            background-color: #e9ecef !important; /* Light gray header */
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
             color: #000;
             font-weight: bold;
         }
-        /* Hide non-print elements */
-        #search-form-container, #print-controls, .d-flex .border-end, .navbar {
-            display: none;
+        .table-striped > tbody > tr:nth-of-type(odd) > * { 
+            background-color: #f7f7f7 !important; /* Very light shading for rows */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
-        #page-content-wrapper {
-            margin-left: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
+
+        /* Info Box Styling */
+        .row.mb-4.border.p-3.rounded {
+            border: 1px solid #000 !important;
+            padding: 10px !important;
+            border-radius: 0 !important; /* Remove rounded corners */
         }
-        .container-fluid {
-            width: 100%;
-            padding: 0 !important;
+
+        /* Signature Block Styling */
+        .signature-box { 
+            margin: 50px auto 0 auto;
+            border-top: 1px solid #000; 
+            width: 80%;
+            text-align: center;
+            padding-top: 5px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
         }
+        .text-muted.small {
+            font-size: 8pt !important;
+        }
+        
+        .text-primary { color: #000 !important; } /* Make headings black */
     }
-    /* Add Select2/Bootstrap Select CSS if needed for the dropdown */
 </style>
 </head>
 <body>
@@ -142,7 +185,8 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
             <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software</a> <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software</a> 
+            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
@@ -154,47 +198,61 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
         </nav>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4 no-print">📄 Employee Asset Clearance Form</h1>
+            <h1 class="mt-4 mb-4">📄 Employee Asset Clearance Form</h1>
             
             <?php if (isset($error_message)): ?>
-                <div class="alert alert-danger no-print"><?php echo htmlspecialchars($error_message); ?></div>
+                <div class="alert alert-danger"><?php echo htmlspecialchars($error_message); ?></div>
             <?php endif; ?>
 
-            <div class="card shadow-sm mb-5 no-print" id="search-form-container">
-                <div class="card-header bg-info text-dark fw-bold">Select Employee</div>
+            <div class="card shadow-sm mb-5" id="search-form-container">
+                <div class="card-header bg-secondary text-white fw-bold">Select Employee</div>
                 <div class="card-body">
-                    <form method="POST" action="employee_clearance.php" class="d-flex">
-                        <select name="employee_id" class="form-select me-2" required>
-                            <option value="">-- Select Employee --</option>
-                            <?php foreach ($employees_list as $emp): ?>
-                                <option value="<?php echo htmlspecialchars($emp['employee_id']); ?>"
-                                    <?php echo ($employee_id == $emp['employee_id']) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($emp['name']) . ' (' . htmlspecialchars($emp['employee_id']) . ')'; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="submit" name="select_employee" class="btn btn-primary"><i class="bi bi-search"></i> Generate</button>
+                    <form method="POST" action="employee_clearance.php">
+                        <input type="hidden" name="select_employee" value="1"> 
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-6">
+                                <label for="employee_id" class="form-label">Employee Name or ID</label>
+                                <select class="form-select" id="employee_id" name="employee_id" required>
+                                    <option value="">Select Employee...</option>
+                                    <?php foreach ($employees_list as $emp): ?>
+                                    <option 
+                                        value="<?php echo $emp['employee_id']; ?>" 
+                                        <?php echo ($emp['employee_id'] == $employee_id) ? 'selected' : ''; ?>
+                                    >
+                                        <?php echo htmlspecialchars($emp['name']) . ' (' . htmlspecialchars($emp['employee_id']) . ')'; ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" class="btn btn-primary w-100">Load Clearance Form</button>
+                            </div>
+                        </div>
                     </form>
                 </div>
             </div>
 
             <?php if ($employee_data): ?>
 
-                <div id="print-controls" class="mb-4 no-print">
+                <div id="print-controls" class="mb-4">
                     <button class="btn btn-success" onclick="window.print()"><i class="bi bi-printer"></i> Print / Save as PDF</button>
-                    <?php if ($total_assigned_items > 0): ?>
-                        <span class="text-danger ms-3 fw-bold">NOTE: **<?php echo $total_assigned_items; ?>** item(s) (Hardware/Software) are still assigned.</span>
+                    <?php if (count($assigned_assets) > 0): ?>
+                        <span class="text-danger ms-3 fw-bold">NOTE: <?php echo count($assigned_assets); ?> asset(s) are still assigned.</span>
                     <?php else: ?>
-                        <span class="text-success ms-3 fw-bold">Clearance Ready: No assets or software currently assigned.</span>
+                        <span class="text-success ms-3 fw-bold">Clearance Ready: No assets currently assigned.</span>
                     <?php endif; ?>
                 </div>
 
                 <div class="card shadow-lg mb-5">
-                    <div class="card-header border-bottom text-center">
-                        <h3 class="mb-0 text-white">CHROMAESTHETICS INC </br> IT ASSET CLEARANCE CLEARANCE</h3>
-                        <p class="text-white mb-0">Issued on: <?php echo date('Y-m-d'); ?></p>
+                    <div class="card-header bg-primary text-white fw-bold text-center">
+                        <h4 class="mb-0">IT ASSET CLEARANCE FORM</h4>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
+                        
+                        <div class="text-center mb-4">
+                            <h3 class="fw-bold mb-0">CHROMAESTHETICS INC</h3>
+                            <p class="text-muted small">Issued on: <?php echo date('Y-m-d'); ?></p>
+                        </div>
                         
                         <h5 class="mb-3 text-primary">Employee Information</h5>
                         <div class="row mb-4 border p-3 rounded">
@@ -204,7 +262,7 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
                             <div class="col-md-6"><strong>Position:</strong> <?php echo htmlspecialchars($employee_data['position']); ?></div>
                         </div>
 
-                        <h5 class="mt-4 mb-3 text-primary">Assigned Hardware Assets (Current Status)</h5>
+                        <h5 class="mt-4 mb-3 text-primary">Assigned Assets (Current Status)</h5>
                         <div class="table-responsive">
                             <table class="table table-bordered table-striped align-middle">
                                 <thead>
@@ -235,45 +293,18 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
                                         <?php endforeach; ?>
                                     <?php else: ?>
                                         <tr>
-                                            <td colspan="7" class="text-center text-success fw-bold">NO HARDWARE ASSETS CURRENTLY ASSIGNED.</td>
+                                            <td colspan="7" class="text-center text-success fw-bold">NO ASSETS CURRENTLY ASSIGNED. Clearance may proceed.</td>
                                         </tr>
-                                        <?php for ($i = 1; $i <= 3; $i++): ?>
-                                            <tr><td><?php echo $i; ?></td><td></td><td></td><td></td><td></td><td class="text-center"></td><td class="text-center"></td></tr>
-                                        <?php endfor; ?>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <h5 class="mt-5 mb-3 text-primary">Assigned Software Licenses (Current Status)</h5>
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-striped align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Software Name</th>
-                                        <th>License Type</th>
-                                        <th>Date Allocated</th>
-                                        <th class="text-center">IT Check (Revoked)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php $j = 1; if (count($assigned_software) > 0): ?>
-                                        <?php foreach ($assigned_software as $software): ?>
-                                        <tr>
-                                            <td><?php echo $j++; ?></td>
-                                            <td><?php echo htmlspecialchars($software['software_name']); ?></td>
-                                            <td><span class="badge bg-dark"><?php echo htmlspecialchars($software['license_type']); ?></span></td>
-                                            <td><?php echo date('Y-m-d', strtotime($software['date_allocated'])); ?></td>
-                                            <td class="text-center"></td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td colspan="5" class="text-center text-success fw-bold">NO SOFTWARE LICENSES CURRENTLY ASSIGNED.</td>
-                                        </tr>
-                                        <?php for ($j = 1; $j <= 2; $j++): ?>
-                                            <tr><td><?php echo $j; ?></td><td></td><td></td><td></td><td class="text-center"></td></tr>
+                                        <?php for ($j = 1; $j <= 3; $j++): // Add empty rows for formality ?>
+                                            <tr>
+                                                <td><?php echo $j; ?></td>
+                                                <td></td>
+                                                <td></td>
+                                                <td></td>
+                                                <td></td>
+                                                <td class="text-center"></td>
+                                                <td class="text-center"></td>
+                                            </tr>
                                         <?php endfor; ?>
                                     <?php endif; ?>
                                 </tbody>
@@ -281,23 +312,23 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
                         </div>
                         
                         <h5 class="mt-5 mb-3 text-primary">Clearance Signatures</h5>
-                        <div class="row text-center mt-5">
-                            <div class="col-lg-4 col-md-12 mb-4 mb-lg-0">
-                                <div class="signature-box">_________________________</div>
-                                <small class="text-muted">Employee Signature / Date</small>
+                        <div class="row text-center">
+                            
+                            <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
+                                <div class="signature-box">Employee Name and Signature</div>
+                                <small class="text-muted">I confirm the return of all listed assets.</small>
                             </div>
-
-                            <div class="col-lg-4 col-md-12 mb-4 mb-lg-0">
-                                <div class="signature-box">_________________________</div>
-                                <small class="text-muted">Noted by: IT Department</small>
+                            
+                            <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
+                                <div class="signature-box">Noted by: IT Department</div>
+                                <small class="text-muted">All listed assets have been returned/accounted for.</small>
                             </div>
 
                             <div class="col-lg-4 col-md-12">
-                                <div class="signature-box">_________________________</div>
-                                <small class="text-muted">Approved by: (IT MANAGER)</small>
+                                <div class="signature-box">Approved by: (IT MANAGER)</div>
+                                <small class="text-muted">Final approval for asset clearance.</small>
                             </div>
                         </div>
-
 
                         <p class="mt-5 text-muted small">Clearance Report generated by the IT Inventory System on <?php echo date('Y-m-d H:i:s'); ?>.</p>
 
@@ -319,6 +350,7 @@ $total_assigned_items = count($assigned_assets) + count($assigned_software);
         wrapper.classList.toggle("toggled");
     });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/js/bootstrap-select.min.js"></script>
 
 </body>
 </html>

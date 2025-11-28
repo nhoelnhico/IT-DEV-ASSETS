@@ -36,7 +36,7 @@ if (isset($_GET['sort_order']) && in_array(strtoupper($_GET['sort_order']), ['AS
 }
 
 
-// --- 2. HANDLE DELETE ASSET (Existing Logic) ---
+// --- 2. HANDLE DELETE ASSET (FIXED LOGIC) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
     $asset_id_to_delete = filter_input(INPUT_POST, 'delete_asset_id', FILTER_SANITIZE_NUMBER_INT);
 
@@ -49,14 +49,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
         $message = '<div class="alert alert-danger">ERROR: Cannot delete asset **' . htmlspecialchars($asset_info['fam_tag_number']) . '** because it is currently assigned (status: In Use). Revoke the asset via the Transmittal page first.</div>';
     } elseif ($asset_info) {
         try {
-            // Delete the asset (Transmittal records linked via foreign keys will also be deleted)
-            $sql = "DELETE FROM assets WHERE asset_id = ?";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute([$asset_id_to_delete]);
+            // ** START FIX **
+            // Use a transaction to ensure integrity: delete history, then delete asset.
+            $pdo->beginTransaction();
 
-            $message = '<div class="alert alert-success">Asset **' . htmlspecialchars($asset_info['fam_tag_number']) . '** deleted successfully.</div>';
+            // 1. Delete all related records from the child table (`transmittals`) first.
+            $sql_transmittal = "DELETE FROM transmittals WHERE asset_id = ?";
+            $stmt_transmittal = $pdo->prepare($sql_transmittal);
+            $stmt_transmittal->execute([$asset_id_to_delete]);
+
+            // 2. Delete the parent record from the `assets` table.
+            $sql_asset = "DELETE FROM assets WHERE asset_id = ?";
+            $stmt_asset = $pdo->prepare($sql_asset);
+            $stmt_asset->execute([$asset_id_to_delete]);
+            
+            // 3. Commit the transaction
+            $pdo->commit();
+            // ** END FIX **
+
+            $message = '<div class="alert alert-success">Asset **' . htmlspecialchars($asset_info['fam_tag_number']) . '** and its transmittal history deleted successfully.</div>';
         } catch (\PDOException $e) {
-            $message = '<div class="alert alert-danger">Database Error: Could not delete asset. ' . htmlspecialchars($e->getMessage()) . '</div>';
+            // Rollback if any step failed
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $message = '<div class="alert alert-danger">Database Error: Could not delete asset or its history. Transaction failed.</div>';
+            error_log("Asset Deletion Transaction Error: " . $e->getMessage());
         }
     } else {
         $message = '<div class="alert alert-danger">Error: Asset not found for deletion.</div>';
@@ -165,7 +183,7 @@ try {
                                             default => 'bg-secondary',
                                         };
                                         $current_user_display = $asset['current_user_name'] ? htmlspecialchars($asset['current_user_name']) . ' (' . htmlspecialchars($asset['employee_id']) . ')' : 'None';
-                                        $is_assigned = $asset['current_user_id'] !== null; // <<< THIS LINE NOW WORKS
+                                        $is_assigned = $asset['current_user_id'] !== null; 
                                     ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
