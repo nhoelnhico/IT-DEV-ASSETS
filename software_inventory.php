@@ -46,11 +46,60 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_software'])) {
     }
 }
 
-// --- 3. HANDLE EDIT SOFTWARE (omitted for brevity, assume similar logic to inventory.php) ---
-// ...
+// --- 3. HANDLE EDIT SOFTWARE (NEW LOGIC) ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_software'])) {
+    $software_id = filter_input(INPUT_POST, 'edit_software_id', FILTER_SANITIZE_NUMBER_INT);
+    $name = filter_input(INPUT_POST, 'edit_name', FILTER_SANITIZE_STRING);
+    $details = filter_input(INPUT_POST, 'edit_details', FILTER_SANITIZE_STRING); 
+    $license_type = filter_input(INPUT_POST, 'edit_license_type', FILTER_SANITIZE_STRING);
+    $total_licenses = filter_input(INPUT_POST, 'edit_total_licenses', FILTER_SANITIZE_NUMBER_INT);
+    // Get the current in-use count passed from the form (safety check)
+    $licenses_in_use = filter_input(INPUT_POST, 'current_in_use_count', FILTER_SANITIZE_NUMBER_INT); 
 
-// --- 4. HANDLE DELETE SOFTWARE (omitted for brevity, assume similar logic to inventory.php) ---
-// ...
+    if (empty($software_id) || empty($name) || empty($license_type) || $total_licenses === false || $total_licenses < 0) {
+        $message = '<div class="alert alert-danger">Name, License Type, and Total Licenses (must be 0 or more) are required for update.</div>';
+    } elseif ($total_licenses < $licenses_in_use) {
+        $message = '<div class="alert alert-danger">ERROR: Total licenses cannot be set to **' . $total_licenses . '** because **' . $licenses_in_use . '** licenses are currently in use. Please revoke licenses before lowering the total count.</div>';
+    } else {
+        try {
+            $sql = "UPDATE software_licenses SET name = ?, details = ?, license_type = ?, total_licenses = ? WHERE software_id = ?";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$name, $details, $license_type, $total_licenses, $software_id]);
+            $message = '<div class="alert alert-success">Software **' . htmlspecialchars($name) . '** updated successfully.</div>';
+        } catch (\PDOException $e) {
+            $message = '<div class="alert alert-danger">Database Error: Could not update software.</div>';
+            error_log("Software Update Error: " . $e->getMessage());
+        }
+    }
+}
+
+// --- 4. HANDLE DELETE SOFTWARE (NEW LOGIC) ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_software'])) {
+    $software_id_to_delete = filter_input(INPUT_POST, 'delete_software_id', FILTER_SANITIZE_NUMBER_INT);
+
+    // Check if any licenses are in use
+    $check_stmt = $pdo->prepare("SELECT name, licenses_in_use FROM software_licenses WHERE software_id = ?");
+    $check_stmt->execute([$software_id_to_delete]);
+    $software_info = $check_stmt->fetch();
+
+    if ($software_info && $software_info['licenses_in_use'] > 0) {
+        $message = '<div class="alert alert-danger">ERROR: Cannot delete software **' . htmlspecialchars($software_info['name']) . '** because **' . $software_info['licenses_in_use'] . '** licenses are currently allocated to employees. Revoke all licenses first.</div>';
+    } elseif ($software_info) {
+        try {
+            // Delete the software
+            $sql = "DELETE FROM software_licenses WHERE software_id = ?";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$software_id_to_delete]);
+
+            $message = '<div class="alert alert-success">Software **' . htmlspecialchars($software_info['name']) . '** deleted successfully.</div>';
+        } catch (\PDOException $e) {
+            $message = '<div class="alert alert-danger">Database Error: Could not delete software. ' . htmlspecialchars($e->getMessage()) . '</div>';
+            error_log("Software Delete Error: " . $e->getMessage());
+        }
+    } else {
+        $message = '<div class="alert alert-danger">Error: Software not found for deletion.</div>';
+    }
+}
 
 // --- 5. FETCH SOFTWARE DATA ---
 try {
@@ -89,7 +138,6 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        /* ... (Existing CSS for sidebar, etc. remains here) ... */
         body { background-color: #f8f9fa; }
         #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
         #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
@@ -291,12 +339,120 @@ try {
     </div>
 </div>
 
+<div class="modal fade" id="editSoftwareModal" tabindex="-1" aria-labelledby="editSoftwareModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="software_inventory.php">
+                <input type="hidden" name="update_software" value="1">
+                <input type="hidden" name="edit_software_id" id="edit_software_id">
+                <input type="hidden" name="current_in_use_count" id="current_in_use_count">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="editSoftwareModalLabel">Edit Software License</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="fw-bold text-danger">Licenses Currently In Use: <span id="current_in_use_display">0</span></p>
+                    <div class="mb-3">
+                        <label for="edit_name" class="form-label">Software Name</label>
+                        <input type="text" class="form-control" id="edit_name" name="edit_name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_details" class="form-label">Details or Purpose</label>
+                        <textarea class="form-control" id="edit_details" name="edit_details" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_license_type" class="form-label">Payment Type</label>
+                        <select class="form-select" id="edit_license_type" name="edit_license_type" required>
+                            <option value="Subscription">Subscription</option>
+                            <option value="Fixed Payment">Fixed Payment</option>
+                            <option value="Perpetual">Perpetual</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_total_licenses" class="form-label">Total Licenses Purchased</label>
+                        <input type="number" class="form-control" id="edit_total_licenses" name="edit_total_licenses" min="0" required>
+                        <small class="text-muted">Must be greater than or equal to licenses currently in use.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="deleteSoftwareModal" tabindex="-1" aria-labelledby="deleteSoftwareModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="software_inventory.php">
+                <input type="hidden" name="delete_software" value="1">
+                <input type="hidden" name="delete_software_id" id="delete_software_id">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="deleteSoftwareModalLabel">Confirm Software Deletion</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to permanently delete the software entry for: <strong><span id="delete_software_name"></span></strong>?</p>
+                    <p class="text-danger fw-bold">This action cannot be undone. You can only delete software with **0** licenses in use.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Yes, Delete Software</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
+
+    // Logic for the EDIT modal to populate fields when opened
+    var editSoftwareModal = document.getElementById('editSoftwareModal');
+    editSoftwareModal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget; // Button that triggered the modal
+        var softwareId = button.getAttribute('data-id');
+        var name = button.getAttribute('data-name');
+        var details = button.getAttribute('data-details');
+        var type = button.getAttribute('data-type');
+        var total = button.getAttribute('data-total');
+        var inUse = button.getAttribute('data-inuse');
+        
+        // Populate form fields
+        editSoftwareModal.querySelector('#edit_software_id').value = softwareId;
+        editSoftwareModal.querySelector('#edit_name').value = name;
+        editSoftwareModal.querySelector('#edit_details').value = details;
+        editSoftwareModal.querySelector('#edit_license_type').value = type;
+        editSoftwareModal.querySelector('#edit_total_licenses').value = total;
+        editSoftwareModal.querySelector('#current_in_use_count').value = inUse; // Hidden field
+        
+        // Update display text
+        editSoftwareModal.querySelector('.modal-title').textContent = 'Edit Software: ' + name;
+        editSoftwareModal.querySelector('#current_in_use_display').textContent = inUse;
+        
+        // Set min attribute for safety (cannot lower count below licenses in use)
+        editSoftwareModal.querySelector('#edit_total_licenses').min = inUse;
+    });
+
+    // Logic for the DELETE modal to populate fields when opened
+    var deleteSoftwareModal = document.getElementById('deleteSoftwareModal');
+    deleteSoftwareModal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget; // Button that triggered the modal
+        var softwareId = button.getAttribute('data-id');
+        var name = button.getAttribute('data-name');
+        
+        // Populate form fields
+        deleteSoftwareModal.querySelector('#delete_software_id').value = softwareId;
+        deleteSoftwareModal.querySelector('#delete_software_name').textContent = name;
+    });
+
 </script>
 
 </body>

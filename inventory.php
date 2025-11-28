@@ -10,7 +10,6 @@ $sort_order = 'ASC'; // Default order
 $assets = [];
 
 // --- 1. HANDLE SEARCH AND SORTING (Existing Logic) ---
-// ... (The existing logic for search and sort by GET parameters remains here) ...
 
 if (isset($_GET['search']) && !empty($_GET['search'])) {
     $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
@@ -37,7 +36,7 @@ if (isset($_GET['sort_order']) && in_array(strtoupper($_GET['sort_order']), ['AS
 }
 
 
-// --- 2. HANDLE DELETE ASSET (NEW LOGIC) ---
+// --- 2. HANDLE DELETE ASSET (Existing Logic) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
     $asset_id_to_delete = filter_input(INPUT_POST, 'delete_asset_id', FILTER_SANITIZE_NUMBER_INT);
 
@@ -65,13 +64,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
 }
 
 // --- 3. HANDLE ADD/EDIT ASSET (Existing Logic, omitted for brevity) ---
-// ... (Your existing ADD/EDIT logic should be here) ...
+// ...
 
-// --- 4. FETCH ASSETS (Existing Logic) ---
+// --- 4. FETCH ASSETS (Updated SQL) ---
 try {
     $sql = "
         SELECT 
             a.asset_id, a.fam_tag_number, a.device_type, a.device_name, a.serial_number, a.date_received, a.status,
+            a.current_user_id, 
             e.employee_id, e.name AS current_user_name
         FROM 
             assets a
@@ -98,7 +98,6 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        /* ... (Existing CSS for sidebar, etc. remains here) ... */
         body { background-color: #f8f9fa; }
         #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
         #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
@@ -117,7 +116,8 @@ try {
             <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software</a> <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
             <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
@@ -152,7 +152,8 @@ try {
                                     <th>Date Received</th>
                                     <th>Status</th>
                                     <th>Current User</th>
-                                    <th style="width: 150px;">Actions</th> </tr>
+                                    <th style="width: 150px;">Actions</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 <?php if (!empty($assets)): ?>
@@ -164,7 +165,7 @@ try {
                                             default => 'bg-secondary',
                                         };
                                         $current_user_display = $asset['current_user_name'] ? htmlspecialchars($asset['current_user_name']) . ' (' . htmlspecialchars($asset['employee_id']) . ')' : 'None';
-                                        $is_assigned = $asset['current_user_id'] !== null;
+                                        $is_assigned = $asset['current_user_id'] !== null; // <<< THIS LINE NOW WORKS
                                     ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
