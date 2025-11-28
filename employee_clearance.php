@@ -4,8 +4,10 @@ require_once 'includes/config.php';
 
 $employee_data = null;
 $assigned_assets = [];
+$assigned_software = []; // Variable to hold assigned software
 $employee_id = '';
 $employees_list = [];
+$error_message = ''; // Added error variable
 
 // Fetch list of all employees for the dropdown/search suggestions
 try {
@@ -32,7 +34,7 @@ if (!empty($employee_id)) {
         $employee_data = $stmt_employee->fetch();
 
         if ($employee_data) {
-            // 2. Fetch Assigned Assets
+            // 2. Fetch Assigned Hardware Assets
             $sql_assets = "
                 SELECT 
                     fam_tag_number, device_type, device_name, serial_number, status
@@ -46,12 +48,29 @@ if (!empty($employee_id)) {
             $stmt_assets = $pdo->prepare($sql_assets);
             $stmt_assets->execute([$employee_id]);
             $assigned_assets = $stmt_assets->fetchAll();
+            
+            // 3. FIX: Fetch Assigned Software Licenses from the new table
+            $sql_software = "
+                SELECT 
+                    name, version, license_type, license_key
+                FROM 
+                    software_licenses 
+                WHERE 
+                    employee_id = ?
+                ORDER BY 
+                    name ASC
+            ";
+            $stmt_software = $pdo->prepare($sql_software);
+            $stmt_software->execute([$employee_id]);
+            $assigned_software = $stmt_software->fetchAll();
         }
 
     } catch (\PDOException $e) {
-        $error_message = "Database Error: Could not retrieve data.";
+        $error_message = "Database Error: Could not retrieve data. Error: " . $e->getMessage();
     }
 }
+// Calculate total assigned items for the warning message
+$total_assigned = count($assigned_assets) + count($assigned_software);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -95,7 +114,6 @@ if (!empty($employee_id)) {
         #print-controls, 
         .navbar, 
         .alert,
-        /* Assuming the H1 title is still outside the card and needs to be hidden */
         .container-fluid > h1.mt-4.mb-4 { 
             display: none !important; 
         }
@@ -200,7 +218,7 @@ if (!empty($employee_id)) {
         <div class="container-fluid p-4">
             <h1 class="mt-4 mb-4">📄 Employee Asset Clearance Form</h1>
             
-            <?php if (isset($error_message)): ?>
+            <?php if (!empty($error_message)): ?>
                 <div class="alert alert-danger"><?php echo htmlspecialchars($error_message); ?></div>
             <?php endif; ?>
 
@@ -236,8 +254,8 @@ if (!empty($employee_id)) {
 
                 <div id="print-controls" class="mb-4">
                     <button class="btn btn-success" onclick="window.print()"><i class="bi bi-printer"></i> Print / Save as PDF</button>
-                    <?php if (count($assigned_assets) > 0): ?>
-                        <span class="text-danger ms-3 fw-bold">NOTE: <?php echo count($assigned_assets); ?> asset(s) are still assigned.</span>
+                    <?php if ($total_assigned > 0): ?>
+                        <span class="text-danger ms-3 fw-bold">NOTE: <?php echo $total_assigned; ?> IT asset(s) are still assigned (Hardware and/or Software).</span>
                     <?php else: ?>
                         <span class="text-success ms-3 fw-bold">Clearance Ready: No assets currently assigned.</span>
                     <?php endif; ?>
@@ -246,13 +264,9 @@ if (!empty($employee_id)) {
                 <div class="card shadow-lg mb-5">
                     <div class="card-header bg-primary text-white fw-bold text-center">
                         <h4 class="mb-0">IT ASSET CLEARANCE FORM</h4>
+                        <p class="text-white mb-0 small">CHROMAESTHETICS INC | Issued on: <?php echo date('Y-m-d'); ?></p>
                     </div>
                     <div class="card-body p-4">
-                        
-                        <div class="text-center mb-4">
-                            <h3 class="fw-bold mb-0">CHROMAESTHETICS INC</h3>
-                            <p class="text-muted small">Issued on: <?php echo date('Y-m-d'); ?></p>
-                        </div>
                         
                         <h5 class="mb-3 text-primary">Employee Information</h5>
                         <div class="row mb-4 border p-3 rounded">
@@ -262,7 +276,7 @@ if (!empty($employee_id)) {
                             <div class="col-md-6"><strong>Position:</strong> <?php echo htmlspecialchars($employee_data['position']); ?></div>
                         </div>
 
-                        <h5 class="mt-4 mb-3 text-primary">Assigned Assets (Current Status)</h5>
+                        <h5 class="mt-4 mb-3 text-primary">Assigned Hardware Assets (Current Status)</h5>
                         <div class="table-responsive">
                             <table class="table table-bordered table-striped align-middle">
                                 <thead>
@@ -293,20 +307,58 @@ if (!empty($employee_id)) {
                                         <?php endforeach; ?>
                                     <?php else: ?>
                                         <tr>
-                                            <td colspan="7" class="text-center text-success fw-bold">NO ASSETS CURRENTLY ASSIGNED. Clearance may proceed.</td>
+                                            <td colspan="7" class="text-center text-success fw-bold">NO HARDWARE ASSETS CURRENTLY ASSIGNED.</td>
                                         </tr>
-                                        <?php for ($j = 1; $j <= 3; $j++): // Add empty rows for formality ?>
-                                            <tr>
-                                                <td><?php echo $j; ?></td>
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
-                                                <td class="text-center"></td>
-                                                <td class="text-center"></td>
-                                            </tr>
-                                        <?php endfor; ?>
                                     <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <h5 class="mt-5 mb-3 text-primary">Assigned Software Licenses</h5>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-striped align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Software Name</th>
+                                        <th>Version</th>
+                                        <th>License Type</th>
+                                        <th>License Key / ID</th>
+                                        <th class="text-center">IT Check (Revoked)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php $j = 1; if (count($assigned_software) > 0): ?>
+                                        <?php foreach ($assigned_software as $software): ?>
+                                        <tr>
+                                            <td><?php echo $j++; ?></td>
+                                            <td><?php echo htmlspecialchars($software['name']); ?></td>
+                                            <td><?php echo htmlspecialchars($software['version']); ?></td>
+                                            <td><?php echo htmlspecialchars($software['license_type']); ?></td>
+                                            <td><?php echo htmlspecialchars($software['license_key']); ?></td>
+                                            <td class="text-center"></td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td colspan="6" class="text-center text-success fw-bold">NO SOFTWARE LICENSES CURRENTLY ASSIGNED.</td>
+                                        </tr>
+                                        <?php endif; ?>
+                                        
+                                    <?php 
+                                        // Add empty rows for formality if needed, ensuring minimum height
+                                        $rows_to_add = 3 - count($assigned_software);
+                                        for ($k = 1; $k <= $rows_to_add; $k++): 
+                                    ?>
+                                        <tr>
+                                            <td><?php echo count($assigned_software) + $k; ?></td>
+                                            <td></td>
+                                            <td></td>
+                                            <td></td>
+                                            <td></td>
+                                            <td class="text-center"></td>
+                                        </tr>
+                                    <?php endfor; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -316,12 +368,12 @@ if (!empty($employee_id)) {
                             
                             <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
                                 <div class="signature-box">Employee Name and Signature</div>
-                                <small class="text-muted">I confirm the return of all listed assets.</small>
+                                <small class="text-muted">I confirm the return/revocation of all listed assets and licenses.</small>
                             </div>
                             
                             <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
                                 <div class="signature-box">Noted by: IT Department</div>
-                                <small class="text-muted">All listed assets have been returned/accounted for.</small>
+                                <small class="text-muted">All listed assets/licenses have been returned/revoked.</small>
                             </div>
 
                             <div class="col-lg-4 col-md-12">
