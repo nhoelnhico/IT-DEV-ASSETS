@@ -45,14 +45,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_employee'])) {
 // --- 3. Fetch all employees (with search filter) ---
 $sql_fetch = "
     SELECT 
-        e.employee_id, e.name, e.department, e.position, COUNT(a.asset_id) AS assigned_assets
+        e.employee_id, e.name, e.department, e.position, 
+        (
+            SELECT COUNT(a.asset_id) 
+            FROM assets a 
+            WHERE a.current_user_id = e.employee_id
+        ) AS assigned_assets_hardware,
+        (
+            SELECT COUNT(sa.assignment_id) 
+            FROM software_assignments sa 
+            WHERE sa.employee_id = e.employee_id AND sa.status = 'Active'
+        ) AS assigned_assets_software
     FROM 
         employees e
-    LEFT JOIN 
-        assets a ON e.employee_id = a.current_user_id
     {$search_condition} 
-    GROUP BY
-        e.employee_id, e.name, e.department, e.position
     ORDER BY 
         e.employee_id ASC
 ";
@@ -90,9 +96,9 @@ $employee_count = count($employees);
             <a class="list-group-item list-group-item-action bg-dark active" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
             <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software Inventory</a> 
-<a class="list-group-item list-group-item-action bg-dark active" href="software_assignment.php">🔑 License Assignment</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="software_assignment.php">🔑 License Assignment</a> 
             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
-            <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
@@ -110,7 +116,7 @@ $employee_count = count($employees);
         </nav>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4"> Employee Management</h1>
+            <h1 class="mt-4 mb-4">🧑‍💻 Employee Management</h1>
             
             <?php echo $message; ?>
 
@@ -170,7 +176,8 @@ $employee_count = count($employees);
                                     <th>Name</th>
                                     <th>Department</th>
                                     <th>Position</th>
-                                    <th>**Assets Assigned**</th>
+                                    <th>Assets (H)</th>
+                                    <th>Licenses (S)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -185,12 +192,13 @@ $employee_count = count($employees);
                                         </td>
                                         <td><?php echo htmlspecialchars($employee['department']); ?></td>
                                         <td><?php echo htmlspecialchars($employee['position']); ?></td>
-                                        <td><span class="badge bg-secondary"><?php echo $employee['assigned_assets']; ?></span></td> 
+                                        <td><span class="badge bg-secondary"><?php echo $employee['assigned_assets_hardware']; ?></span></td> 
+                                        <td><span class="badge bg-info"><?php echo $employee['assigned_assets_software']; ?></span></td> 
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="5" class="text-center text-muted">
+                                        <td colspan="6" class="text-center text-muted">
                                             <?php if (!empty($search_term)): ?>
                                                 No employees found matching "<?php echo htmlspecialchars($search_term); ?>".
                                             <?php else: ?>

@@ -40,12 +40,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_license'])) {
     // Sanitize and collect data
     $software_id = filter_input(INPUT_POST, 'software_id', FILTER_SANITIZE_NUMBER_INT);
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
-    $license_key = filter_input(INPUT_POST, 'license_key', FILTER_SANITIZE_STRING);
+    // Removed license_key input field and variable
+
     $date_assigned = date('Y-m-d'); // Current date
 
-    // Basic Validation
-    if (empty($software_id) || empty($employee_id) || empty($license_key)) {
-        $message = '<div class="alert alert-danger">All fields are required.</div>';
+    // Basic Validation (Only software and employee are required now)
+    if (empty($software_id) || empty($employee_id)) {
+        $message = '<div class="alert alert-danger">Both Software and Employee must be selected.</div>';
     } else {
         try {
             // Check license availability (Crucial step)
@@ -59,9 +60,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_license'])) {
                     $message = '<div class="alert alert-danger">Assignment Failed: No available licenses for ' . htmlspecialchars($selected_software['name']) . '.</div>';
                 } else {
                     // Perform the assignment transaction
-                    $sql = "INSERT INTO software_assignments (software_id, employee_id, license_key, status, date_assigned) VALUES (?, ?, ?, 'Active', ?)";
+                    // FIX: Changed NULL to '' (empty string) to bypass the NOT NULL constraint
+                    $sql = "INSERT INTO software_assignments (software_id, employee_id, license_key, status, date_assigned) VALUES (?, ?, '', 'Active', ?)";
                     $stmt = $pdo->prepare($sql);
-                    $stmt->execute([$software_id, $employee_id, $license_key, $date_assigned]);
+                    $stmt->execute([$software_id, $employee_id, $date_assigned]);
 
                     // Reload the page to reflect updated counts
                     header("Location: software_assignment.php?msg=" . urlencode("License assigned successfully!"));
@@ -72,11 +74,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_license'])) {
             }
 
         } catch (\PDOException $e) {
-            if ($e->getCode() == 23000) { // Integrity constraint violation (e.g., duplicate license key)
-                $message = '<div class="alert alert-danger">Assignment Failed: This license key already exists or is assigned.</div>';
-            } else {
-                $message = '<div class="alert alert-danger">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
-            }
+            $message = '<div class="alert alert-danger">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
         }
     }
 }
@@ -112,7 +110,7 @@ try {
     $sql_active = "
         SELECT 
             sa.assignment_id, s.name AS software_name, s.license_type, 
-            e.name AS employee_name, e.employee_id, sa.license_key, sa.date_assigned
+            e.name AS employee_name, e.employee_id, sa.date_assigned
         FROM 
             software_assignments sa
         JOIN 
@@ -124,6 +122,7 @@ try {
         ORDER BY
             sa.date_assigned DESC
     ";
+    // Removed sa.license_key from SELECT
     $active_assignments = $pdo->query($sql_active)->fetchAll();
 } catch (\PDOException $e) {
     $error_message .= " | Error loading active assignments: " . htmlspecialchars($e->getMessage());
@@ -218,7 +217,7 @@ try {
                     <form method="POST" action="software_assignment.php">
                         <input type="hidden" name="assign_license" value="1">
                         <div class="row g-3">
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="software_id" class="form-label">Software Title</label>
                                 <select class="form-select" id="software_id" name="software_id" required>
                                     <option value="">Select Software...</option>
@@ -234,7 +233,7 @@ try {
                                 </select>
                                 <div class="form-text text-danger" id="availability-warning"></div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="employee_id" class="form-label">Assign To Employee</label>
                                 <select class="form-select" id="employee_id" name="employee_id" required>
                                     <option value="">Select Employee...</option>
@@ -245,11 +244,7 @@ try {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label for="license_key" class="form-label">License Key / ID</label>
-                                <input type="text" class="form-control" id="license_key" name="license_key" placeholder="Enter unique license key/code" required>
                             </div>
-                        </div>
                         <div class="mt-4 text-end">
                             <button type="submit" class="btn btn-success"><i class="bi bi-person-plus"></i> Assign License</button>
                         </div>
@@ -267,7 +262,6 @@ try {
                                     <th>Software</th>
                                     <th>Employee</th>
                                     <th>Employee ID</th>
-                                    <th>License Key / ID</th>
                                     <th>Date Assigned</th>
                                     <th class="text-center">Action</th>
                                 </tr>
@@ -279,7 +273,6 @@ try {
                                         <td><?php echo htmlspecialchars($assignment['software_name'] . ' (' . $assignment['license_type'] . ')'); ?></td>
                                         <td><?php echo htmlspecialchars($assignment['employee_name']); ?></td>
                                         <td><?php echo htmlspecialchars($assignment['employee_id']); ?></td>
-                                        <td><code><?php echo htmlspecialchars($assignment['license_key']); ?></code></td>
                                         <td><?php echo htmlspecialchars($assignment['date_assigned']); ?></td>
                                         <td class="text-center">
                                             <button 
@@ -296,7 +289,7 @@ try {
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="6" class="text-center text-muted">No active software licenses are currently assigned.</td>
+                                        <td colspan="4" class="text-center text-muted">No active software licenses are currently assigned.</td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>

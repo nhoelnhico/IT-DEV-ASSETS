@@ -7,112 +7,165 @@ $search_condition = '';
 $search_params = [];
 $sort_by = 'a.fam_tag_number'; // Default sort
 $sort_order = 'ASC'; // Default order
-$assets = [];
 
-// --- 1. HANDLE SEARCH AND SORTING (Existing Logic) ---
-
+// --- 1. HANDLE SEARCH QUERY ---
 if (isset($_GET['search']) && !empty($_GET['search'])) {
     $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
+    // Use LIKE for global search across FAM Tag, Serial, Type, or Name
     $search_condition = " WHERE a.fam_tag_number LIKE ? OR a.serial_number LIKE ? OR a.device_type LIKE ? OR a.device_name LIKE ?";
     $like_term = '%' . $search_term . '%';
     $search_params = [$like_term, $like_term, $like_term, $like_term];
 }
 
+// --- 2. HANDLE SORTING PARAMETERS ---
 if (isset($_GET['sort_by'])) {
     $requested_sort = filter_input(INPUT_GET, 'sort_by', FILTER_SANITIZE_STRING);
+    // Map valid column names to SQL columns
     $valid_columns = [
         'tag' => 'a.fam_tag_number',
         'type' => 'a.device_type',
         'status' => 'a.status',
-        'date_received' => 'a.date_received',
-        'user' => 'e.name'
+        // Add sorting for the new column
+        'date_received' => 'a.date_received'
     ];
+    
     if (isset($valid_columns[$requested_sort])) {
         $sort_by = $valid_columns[$requested_sort];
     }
 }
-if (isset($_GET['sort_order']) && in_array(strtoupper($_GET['sort_order']), ['ASC', 'DESC'])) {
-    $sort_order = strtoupper(filter_input(INPUT_GET, 'sort_order', FILTER_SANITIZE_STRING));
+
+if (isset($_GET['order']) && in_array(strtoupper($_GET['order']), ['ASC', 'DESC'])) {
+    $sort_order = strtoupper($_GET['order']);
 }
 
 
-// --- 2. HANDLE DELETE ASSET (FIXED LOGIC) ---
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
-    $asset_id_to_delete = filter_input(INPUT_POST, 'delete_asset_id', FILTER_SANITIZE_NUMBER_INT);
+// --- 3. HANDLE ADD NEW ASSET (MODIFIED) ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_asset'])) {
+    $fam_tag_number = filter_input(INPUT_POST, 'fam_tag_number', FILTER_SANITIZE_STRING);
+    $device_type = filter_input(INPUT_POST, 'device_type', FILTER_SANITIZE_STRING);
+    $device_name = filter_input(INPUT_POST, 'device_name', FILTER_SANITIZE_STRING);
+    $serial_number = filter_input(INPUT_POST, 'serial_number', FILTER_SANITIZE_STRING);
+    $date_received = filter_input(INPUT_POST, 'date_received', FILTER_SANITIZE_STRING); // NEW FIELD
+    $initial_status = 'Available'; 
 
-    // Check if the asset is currently assigned (current_user_id is NOT NULL)
-    $check_stmt = $pdo->prepare("SELECT current_user_id, fam_tag_number FROM assets WHERE asset_id = ?");
-    $check_stmt->execute([$asset_id_to_delete]);
-    $asset_info = $check_stmt->fetch();
-
-    if ($asset_info && $asset_info['current_user_id'] !== null) {
-        $message = '<div class="alert alert-danger">ERROR: Cannot delete asset **' . htmlspecialchars($asset_info['fam_tag_number']) . '** because it is currently assigned (status: In Use). Revoke the asset via the Transmittal page first.</div>';
-    } elseif ($asset_info) {
-        try {
-            // ** START FIX **
-            // Use a transaction to ensure integrity: delete history, then delete asset.
-            $pdo->beginTransaction();
-
-            // 1. Delete all related records from the child table (`transmittals`) first.
-            $sql_transmittal = "DELETE FROM transmittals WHERE asset_id = ?";
-            $stmt_transmittal = $pdo->prepare($sql_transmittal);
-            $stmt_transmittal->execute([$asset_id_to_delete]);
-
-            // 2. Delete the parent record from the `assets` table.
-            $sql_asset = "DELETE FROM assets WHERE asset_id = ?";
-            $stmt_asset = $pdo->prepare($sql_asset);
-            $stmt_asset->execute([$asset_id_to_delete]);
-            
-            // 3. Commit the transaction
-            $pdo->commit();
-            // ** END FIX **
-
-            $message = '<div class="alert alert-success">Asset **' . htmlspecialchars($asset_info['fam_tag_number']) . '** and its transmittal history deleted successfully.</div>';
-        } catch (\PDOException $e) {
-            // Rollback if any step failed
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $message = '<div class="alert alert-danger">Database Error: Could not delete asset or its history. Transaction failed.</div>';
-            error_log("Asset Deletion Transaction Error: " . $e->getMessage());
-        }
+    if (empty($fam_tag_number) || empty($device_type) || empty($device_name) || empty($serial_number) || empty($date_received)) {
+        $message = '<div class="alert alert-danger">All fields, including Date Received, are required.</div>';
     } else {
-        $message = '<div class="alert alert-danger">Error: Asset not found for deletion.</div>';
+        try {
+            // UPDATED SQL: Added date_received column
+            $sql = "INSERT INTO assets (fam_tag_number, device_type, device_name, serial_number, date_received, status) 
+                    VALUES (?, ?, ?, ?, ?, ?)";
+            $stmt = $pdo->prepare($sql);
+            // UPDATED EXECUTION: Added $date_received
+            $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $initial_status]);
+
+            $message = '<div class="alert alert-success">Asset **' . htmlspecialchars($fam_tag_number) . '** added successfully and is **Available**.</div>';
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                $message = '<div class="alert alert-warning">Error: FAM Tag or Serial Number already exists.</div>';
+            } else {
+                $message = '<div class="alert alert-danger">Database Error: Could not add asset.</div>';
+            }
+        }
     }
 }
 
-// --- 3. HANDLE ADD/EDIT ASSET (Existing Logic, omitted for brevity) ---
-// ...
+// --- 4. HANDLE EDIT/UPDATE ASSET (MODIFIED) ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_asset'])) {
+    $asset_id = filter_input(INPUT_POST, 'edit_asset_id', FILTER_SANITIZE_NUMBER_INT);
+    $fam_tag_number = filter_input(INPUT_POST, 'edit_fam_tag_number', FILTER_SANITIZE_STRING);
+    $device_type = filter_input(INPUT_POST, 'edit_device_type', FILTER_SANITIZE_STRING);
+    $device_name = filter_input(INPUT_POST, 'edit_device_name', FILTER_SANITIZE_STRING);
+    $serial_number = filter_input(INPUT_POST, 'edit_serial_number', FILTER_SANITIZE_STRING);
+    $date_received = filter_input(INPUT_POST, 'edit_date_received', FILTER_SANITIZE_STRING); // NEW FIELD
+    $status = filter_input(INPUT_POST, 'edit_status', FILTER_SANITIZE_STRING);
 
-// --- 4. FETCH ASSETS (Updated SQL) ---
-try {
-    $sql = "
-        SELECT 
-            a.asset_id, a.fam_tag_number, a.device_type, a.device_name, a.serial_number, a.date_received, a.status,
-            a.current_user_id, 
-            e.employee_id, e.name AS current_user_name
-        FROM 
-            assets a
-        LEFT JOIN 
-            employees e ON a.current_user_id = e.employee_id
-        {$search_condition}
-        ORDER BY {$sort_by} {$sort_order}";
+    if (empty($asset_id) || empty($fam_tag_number) || empty($device_type) || empty($device_name) || empty($serial_number) || empty($status) || empty($date_received)) {
+        $message = '<div class="alert alert-danger">All fields, including Date Received, are required for the update.</div>';
+    } else {
+        try {
+            // UPDATED SQL: Added date_received column
+            $sql = "UPDATE assets 
+                    SET fam_tag_number = ?, device_type = ?, device_name = ?, serial_number = ?, date_received = ?, status = ? 
+                    WHERE asset_id = ?";
+            $stmt = $pdo->prepare($sql);
+            // UPDATED EXECUTION: Added $date_received
+            $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $status, $asset_id]);
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($search_params);
-    $assets = $stmt->fetchAll();
-} catch (\PDOException $e) {
-    $message = '<div class="alert alert-danger">Database Error: Could not load assets.</div>';
-    error_log("Inventory Fetch Error: " . $e->getMessage());
+            $message = '<div class="alert alert-success">Asset **' . htmlspecialchars($fam_tag_number) . '** updated successfully. Status: **' . htmlspecialchars($status) . '**.</div>';
+
+        } catch (\PDOException $e) {
+            $message = '<div class="alert alert-danger">Database Error: Could not update asset. Check for duplicate FAM Tag or Serial Number.</div>';
+        }
+    }
 }
 
+// --- 5. HANDLE DELETE ASSET (NEW) ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
+    $asset_id_to_delete = filter_input(INPUT_POST, 'delete_asset_id', FILTER_SANITIZE_NUMBER_INT);
+
+    if (empty($asset_id_to_delete)) {
+        $message = '<div class="alert alert-danger">Error: No asset ID provided for deletion.</div>';
+    } else {
+        try {
+            // Check status first
+            $check_sql = "SELECT fam_tag_number, status FROM assets WHERE asset_id = ?";
+            $check_stmt = $pdo->prepare($check_sql);
+            $check_stmt->execute([$asset_id_to_delete]);
+            $asset_info = $check_stmt->fetch();
+
+            if (!$asset_info) {
+                $message = '<div class="alert alert-warning">Error: Asset not found.</div>';
+            } elseif ($asset_info['status'] == 'Available') {
+                // Asset is Available, proceed with deletion
+                $delete_sql = "DELETE FROM assets WHERE asset_id = ?";
+                $delete_stmt = $pdo->prepare($delete_sql);
+                $delete_stmt->execute([$asset_id_to_delete]);
+
+                // Redirect/Refresh to clear POST data and show success message
+                header("Location: inventory.php?message=" . urlencode("Asset " . htmlspecialchars($asset_info['fam_tag_number']) . " deleted successfully."));
+                exit;
+
+            } else {
+                // Asset is not Available, prevent deletion
+                $message = '<div class="alert alert-danger">Cannot delete asset **' . htmlspecialchars($asset_info['fam_tag_number']) . '**. Deletion is only allowed when status is **Available**. Current status is **' . htmlspecialchars($asset_info['status']) . '**.</div>';
+            }
+
+        } catch (\PDOException $e) {
+            $message = '<div class="alert alert-danger">Database Error: Could not delete asset.</div>';
+        }
+    }
+}
+
+// Check for successful message from a redirect (after deletion)
+if (isset($_GET['message'])) {
+    $message = '<div class="alert alert-success">' . htmlspecialchars($_GET['message']) . '</div>';
+}
+
+
+// --- 6. FETCH ALL ASSETS (MODIFIED) ---
+$sql_fetch = "
+    SELECT 
+        a.asset_id, a.fam_tag_number, a.device_type, a.device_name, a.serial_number, a.date_received, a.status, e.name AS current_user_name
+    FROM 
+        assets a
+    LEFT JOIN 
+        employees e ON a.current_user_id = e.employee_id
+    {$search_condition}
+    ORDER BY 
+        {$sort_by} {$sort_order}
+";
+$stmt_fetch = $pdo->prepare($sql_fetch);
+$stmt_fetch->execute($search_params);
+$assets = $stmt_fetch->fetchAll();
+$asset_count = count($assets);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Inventory | Hardware Inventory</title>
+    <title>IT Inventory | Inventory</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -122,28 +175,43 @@ try {
         #page-content-wrapper { min-width: 100vw; }
         .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
         .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
-        .sidebar-nav a[href="inventory.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
+        .sidebar-nav a[href="inventory.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } /* Active for this page */
         @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+        
+        /* New Styles for Print/PDF */
+        @media print {
+            .no-print { display: none !important; }
+            body { background-color: #fff !important; }
+            .card { border: none !important; box-shadow: none !important; }
+            h1 { margin-top: 0 !important; }
+            .table-responsive { overflow: visible !important; }
+        }
     </style>
 </head>
 <body>
+
 <div class="d-flex" id="wrapper">
-    <div class="border-end bg-dark" id="sidebar-wrapper">
+    <div class="border-end bg-dark no-print" id="sidebar-wrapper">
         <div class="sidebar-heading">IT Inventory System</div>
         <div class="list-group list-group-flush sidebar-nav">
             <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software Inventory</a> 
-<a class="list-group-item list-group-item-action bg-dark active" href="software_assignment.php">🔑 License Assignment</a>
             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
             <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm no-print">
             <div class="container-fluid">
                 <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
+                <div class="collapse navbar-collapse">
+                    <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">Logout</a>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </nav>
 
@@ -152,83 +220,196 @@ try {
             
             <?php echo $message; ?>
 
-            <div class="card shadow-sm mb-5">
-                <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between align-items-center">
-                    Hardware List (<?php echo count($assets); ?> Total)
-                    <button class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#addAssetModal">
-                        <i class="bi bi-plus-circle"></i> Add New Asset
-                    </button>
+            <div class="card shadow-sm mb-5 border-success no-print">
+                <div class="card-header bg-success text-white">Add New Device to Inventory</div>
+                <div class="card-body">
+                    <form method="POST" action="inventory.php">
+                        <input type="hidden" name="add_asset" value="1"> 
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label for="fam_tag_number" class="form-label">Device FAM Tag Number</label>
+                                <input type="text" class="form-control" id="fam_tag_number" name="fam_tag_number" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="device_type" class="form-label">Device Type</label>
+                                <select class="form-select" id="device_type" name="device_type" required>
+                                    <option value="">Select Type...</option>
+                                    <option value="Desktop">Desktop</option>
+                                    <option value="Laptop">Laptop</option>
+                                    <option value="Monitor">Monitor</option>
+                                    <option value="Company Phone">Company Phone</option>
+                                    <option value="Tablet">Tablet</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="device_name" class="form-label">Device Name / Model</label>
+                                <input type="text" class="form-control" id="device_name" name="device_name" placeholder="e.g., Dell Latitude 5420" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="serial_number" class="form-label">Serial Number</label>
+                                <input type="text" class="form-control" id="serial_number" name="serial_number" required>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-3">
+                                <label for="date_received" class="form-label">Date FAM Received</label>
+                                <input type="date" class="form-control" id="date_received" name="date_received" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success mt-4">Add Device</button>
+                    </form>
                 </div>
+            </div>
+            
+            <div class="card shadow-lg">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center no-print">
+                    <div>Master Inventory List (<?php echo $asset_count; ?> Devices Found)</div>
+                    
+                    <div class="d-flex align-items-center">
+                        <button class="btn btn-sm btn-outline-secondary me-2" onclick="window.print()">
+                            <i class="bi bi-file-earmark-pdf"></i> Save as PDF
+                        </button>
+                        
+                        <form method="GET" action="inventory.php" class="d-flex" style="width: 300px;">
+                            <input 
+                                class="form-control me-2" 
+                                type="search" 
+                                placeholder="Search Tag, Serial, Type, or Name" 
+                                aria-label="Search" 
+                                name="search"
+                                value="<?php echo htmlspecialchars($search_term); ?>"
+                            >
+                            <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i></button>
+                            <?php if (!empty($search_term)): ?>
+                                <a href="inventory.php" class="btn btn-outline-danger ms-1"><i class="bi bi-x"></i></a>
+                            <?php endif; ?>
+                        </form>
+                    </div>
+                </div>
+                <div class="card-header d-print-block d-none">
+                     **Inventory Report** - Generated: <?php echo date('Y-m-d H:i:s'); ?> (<?php echo $asset_count; ?> Devices)
+                </div>
+                
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-striped table-hover align-middle">
                             <thead>
                                 <tr>
-                                    <th>FAM Tag</th>
-                                    <th>Device Type</th>
-                                    <th>Model/Name</th>
-                                    <th>Serial Number</th>
-                                    <th>Date Received</th>
-                                    <th>Status</th>
-                                    <th>Current User</th>
-                                    <th style="width: 150px;">Actions</th>
-                                </tr>
+                                    <th>
+                                        FAM Tag
+                                        <?php 
+                                            $new_order = ($sort_by == 'a.fam_tag_number' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
+                                            $icon = ($sort_by == 'a.fam_tag_number') ? ($sort_order == 'ASC' ? 'bi-sort-up' : 'bi-sort-down') : 'bi-dash-lg';
+                                        ?>
+                                        <a href="inventory.php?sort_by=tag&order=<?php echo $new_order; ?><?php echo !empty($search_term) ? '&search=' . urlencode($search_term) : ''; ?>" class="text-decoration-none no-print">
+                                            <i class="bi <?php echo $icon; ?>"></i>
+                                        </a>
+                                    </th>
+                                    <th>
+                                        Type
+                                        <?php 
+                                            $new_order = ($sort_by == 'a.device_type' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
+                                            $icon = ($sort_by == 'a.device_type') ? ($sort_order == 'ASC' ? 'bi-sort-up' : 'bi-sort-down') : 'bi-dash-lg';
+                                        ?>
+                                        <a href="inventory.php?sort_by=type&order=<?php echo $new_order; ?><?php echo !empty($search_term) ? '&search=' . urlencode($search_term) : ''; ?>" class="text-decoration-none no-print">
+                                            <i class="bi <?php echo $icon; ?>"></i>
+                                        </a>
+                                    </th>
+                                    <th>Device Model</th>
+                                    <th>Serial No.</th>
+                                    <th>
+                                        Date Received
+                                        <?php 
+                                            $new_order = ($sort_by == 'a.date_received' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
+                                            $icon = ($sort_by == 'a.date_received') ? ($sort_order == 'ASC' ? 'bi-sort-up' : 'bi-sort-down') : 'bi-dash-lg';
+                                        ?>
+                                        <a href="inventory.php?sort_by=date_received&order=<?php echo $new_order; ?><?php echo !empty($search_term) ? '&search=' . urlencode($search_term) : ''; ?>" class="text-decoration-none no-print">
+                                            <i class="bi <?php echo $icon; ?>"></i>
+                                        </a>
+                                    </th>
+                                    <th>
+                                        Status
+                                        <?php 
+                                            $new_order = ($sort_by == 'a.status' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
+                                            $icon = ($sort_by == 'a.status') ? ($sort_order == 'ASC' ? 'bi-sort-up' : 'bi-sort-down') : 'bi-dash-lg';
+                                        ?>
+                                        <a href="inventory.php?sort_by=status&order=<?php echo $new_order; ?><?php echo !empty($search_term) ? '&search=' . urlencode($search_term) : ''; ?>" class="text-decoration-none no-print">
+                                            <i class="bi <?php echo $icon; ?>"></i>
+                                        </a>
+                                    </th>
+                                    <th>Assigned To</th>
+                                    <th class="no-print">Actions</th> </tr>
                             </thead>
                             <tbody>
-                                <?php if (!empty($assets)): ?>
+                                <?php if ($asset_count > 0): ?>
                                     <?php foreach ($assets as $asset): 
-                                        $badge_class = match($asset['status']) {
-                                            'In Use' => 'bg-primary',
-                                            'Available' => 'bg-success',
-                                            'Broken' => 'bg-danger',
-                                            default => 'bg-secondary',
-                                        };
-                                        $current_user_display = $asset['current_user_name'] ? htmlspecialchars($asset['current_user_name']) . ' (' . htmlspecialchars($asset['employee_id']) . ')' : 'None';
-                                        $is_assigned = $asset['current_user_id'] !== null; 
+                                        $badge_class = 'bg-secondary';
+                                        if ($asset['status'] == 'In Use') { $badge_class = 'bg-primary'; }
+                                        if ($asset['status'] == 'Available') { $badge_class = 'bg-success'; }
+                                        if ($asset['status'] == 'Broken') { $badge_class = 'bg-danger'; }
+                                        if ($asset['status'] == 'Repairing') { $badge_class = 'bg-info'; }
                                     ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
                                         <td><?php echo htmlspecialchars($asset['device_type']); ?></td>
                                         <td><?php echo htmlspecialchars($asset['device_name']); ?></td>
                                         <td><?php echo htmlspecialchars($asset['serial_number']); ?></td>
-                                        <td><?php echo htmlspecialchars($asset['date_received']); ?></td>
+                                        <td><?php echo htmlspecialchars($asset['date_received'] ? date('M d, Y', strtotime($asset['date_received'])) : 'N/A'); ?></td>
+                                        <td><span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($asset['status']); ?></span></td>
                                         <td>
-                                            <span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($asset['status']); ?></span>
+                                            <?php echo $asset['current_user_name'] ? htmlspecialchars($asset['current_user_name']) : '<span class="text-muted">Inventory</span>'; ?>
                                         </td>
-                                        <td><?php echo $current_user_display; ?></td>
-                                        <td>
-                                            <button 
-                                                class="btn btn-sm btn-outline-primary me-1" 
-                                                data-bs-toggle="modal" 
-                                                data-bs-target="#editAssetModal"
-                                                data-id="<?php echo htmlspecialchars($asset['asset_id']); ?>"
-                                                data-tag="<?php echo htmlspecialchars($asset['fam_tag_number']); ?>"
-                                                data-type="<?php echo htmlspecialchars($asset['device_type']); ?>"
-                                                data-name="<?php echo htmlspecialchars($asset['device_name']); ?>"
-                                                data-serial="<?php echo htmlspecialchars($asset['serial_number']); ?>"
-                                                data-date="<?php echo htmlspecialchars($asset['date_received']); ?>"
-                                                data-status="<?php echo htmlspecialchars($asset['status']); ?>"
-                                                title="Edit Asset Details"
-                                            >
-                                                <i class="bi bi-pencil"></i>
-                                            </button>
-                                            
-                                            <button 
-                                                class="btn btn-sm btn-outline-danger" 
-                                                data-bs-toggle="modal" 
-                                                data-bs-target="#deleteAssetModal"
-                                                data-id="<?php echo htmlspecialchars($asset['asset_id']); ?>"
-                                                data-tag="<?php echo htmlspecialchars($asset['fam_tag_number']); ?>"
-                                                <?php echo $is_assigned ? 'disabled title="Asset must be revoked from the employee via Transmittal before deletion"' : 'title="Delete Asset"'; ?>
-                                            >
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </td>
+                                        <td class="no-print">
+                                            <div class="btn-group btn-group-sm" role="group" aria-label="Asset Actions">
+                                                <button 
+                                                    class="btn btn-warning edit-btn"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editAssetModal"
+                                                    data-id="<?php echo $asset['asset_id']; ?>"
+                                                    data-tag="<?php echo htmlspecialchars($asset['fam_tag_number']); ?>"
+                                                    data-type="<?php echo htmlspecialchars($asset['device_type']); ?>"
+                                                    data-name="<?php echo htmlspecialchars($asset['device_name']); ?>"
+                                                    data-serial="<?php echo htmlspecialchars($asset['serial_number']); ?>"
+                                                    data-date="<?php echo htmlspecialchars($asset['date_received']); ?>"
+                                                    data-status="<?php echo htmlspecialchars($asset['status']); ?>"
+                                                    title="Edit Asset Details"
+                                                >
+                                                    <i class="bi bi-pencil-square"></i>
+                                                </button>
+                                                
+                                                <?php if ($asset['status'] == 'Available'): ?>
+                                                <button 
+                                                    class="btn btn-danger delete-btn"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#deleteAssetModal"
+                                                    data-id="<?php echo $asset['asset_id']; ?>"
+                                                    data-tag="<?php echo htmlspecialchars($asset['fam_tag_number']); ?>"
+                                                    title="Delete Asset (Status: Available)"
+                                                >
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                                <?php else: ?>
+                                                <button 
+                                                    class="btn btn-secondary disabled" 
+                                                    title="Deletion only allowed when status is 'Available'"
+                                                >
+                                                    <i class="bi bi-x-octagon"></i>
+                                                </button>
+                                                <?php endif; ?>
+                                            </div>
+                                            </td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="8" class="text-center text-muted">No assets found.</td>
+                                        <td colspan="8" class="text-center text-muted">
+                                            <?php if (!empty($search_term)): ?>
+                                                No assets found matching "<?php echo htmlspecialchars($search_term); ?>".
+                                            <?php else: ?>
+                                                No assets recorded in the inventory.
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>
@@ -241,50 +422,151 @@ try {
     </div>
 </div>
 
-<div class="modal fade" id="deleteAssetModal" tabindex="-1" aria-labelledby="deleteAssetModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST" action="inventory.php">
-                <input type="hidden" name="delete_asset" value="1">
-                <input type="hidden" name="delete_asset_id" id="delete_asset_id">
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title" id="deleteAssetModalLabel">Confirm Asset Deletion</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to permanently delete the asset: <strong><span id="delete_asset_tag"></span></strong>?</p>
-                    <p class="text-danger fw-bold">This action cannot be undone and will also delete its transmittal history!</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">Yes, Delete Asset</button>
-                </div>
-            </form>
+<div class="modal fade" id="editAssetModal" tabindex="-1" aria-labelledby="editAssetModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title" id="editAssetModalLabel">Edit Asset Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" action="inventory.php">
+        <div class="modal-body">
+            <input type="hidden" name="update_asset" value="1">
+            <input type="hidden" name="edit_asset_id" id="edit_asset_id">
+
+            <div class="mb-3">
+                <label for="edit_fam_tag_number" class="form-label">FAM Tag Number</label>
+                <input type="text" class="form-control" id="edit_fam_tag_number" name="edit_fam_tag_number" required>
+            </div>
+            <div class="mb-3">
+                <label for="edit_device_type" class="form-label">Device Type</label>
+                <select class="form-select" id="edit_device_type" name="edit_device_type" required>
+                    <option value="Desktop">Desktop</option>
+                    <option value="Laptop">Laptop</option>
+                    <option value="Monitor">Monitor</option>
+                    <option value="Company Phone">Company Phone</option>
+                    <option value="Tablet">Tablet</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="edit_device_name" class="form-label">Device Model</label>
+                <input type="text" class="form-control" id="edit_device_name" name="edit_device_name" required>
+            </div>
+            <div class="mb-3">
+                <label for="edit_serial_number" class="form-label">Serial Number</label>
+                <input type="text" class="form-control" id="edit_serial_number" name="edit_serial_number" required>
+            </div>
+             <div class="mb-3">
+                <label for="edit_date_received" class="form-label">Date FAM Received</label>
+                <input type="date" class="form-control" id="edit_date_received" name="edit_date_received" required>
+            </div>
+            <div class="mb-3">
+                <label for="edit_status" class="form-label">Asset Status</label>
+                <select class="form-select" id="edit_status" name="edit_status" required>
+                    <option value="Available">Available</option>
+                    <option value="In Use" disabled>In Use (Change via Transmittal)</option>
+                    <option value="Broken">Broken (Needs Repair)</option>
+                    <option value="Repairing">Repairing (In Workshop)</option>
+                </select>
+                <div class="form-text text-danger">Note: Status 'In Use' should only be changed via the Transmittal Log.</div>
+            </div>
         </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" class="btn btn-warning">Save Changes</button>
+        </div>
+      </form>
     </div>
+  </div>
 </div>
 
+<div class="modal fade" id="deleteAssetModal" tabindex="-1" aria-labelledby="deleteAssetModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="deleteAssetModalLabel">Confirm Asset Deletion</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" action="inventory.php">
+        <div class="modal-body">
+            <input type="hidden" name="delete_asset" value="1">
+            <input type="hidden" name="delete_asset_id" id="delete_asset_id">
+            
+            <p>Are you sure you want to permanently delete the asset with **FAM Tag: <span id="delete_fam_tag" class="fw-bold"></span>**?</p>
+            <div class="alert alert-warning small">
+                <i class="bi bi-exclamation-triangle-fill"></i> This action is permanent and cannot be undone. Only assets with **Available** status can be deleted.
+            </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger"><i class="bi bi-trash"></i> Permanently Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
+    // Toggle Sidebar
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
-    
-    // Logic for the DELETE modal to populate fields when opened
-    var deleteAssetModal = document.getElementById('deleteAssetModal');
-    deleteAssetModal.addEventListener('show.bs.modal', function (event) {
-        var button = event.relatedTarget; // Button that triggered the modal
+
+    // JavaScript to populate the Edit Modal
+    var editAssetModal = document.getElementById('editAssetModal');
+    editAssetModal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget; 
+
         var assetId = button.getAttribute('data-id');
         var famTag = button.getAttribute('data-tag');
+        var type = button.getAttribute('data-type');
+        var name = button.getAttribute('data-name');
+        var serial = button.getAttribute('data-serial');
+        var dateReceived = button.getAttribute('data-date'); 
+        var status = button.getAttribute('data-status');
+
+        var modalTitle = editAssetModal.querySelector('.modal-title');
+        var modalAssetId = editAssetModal.querySelector('#edit_asset_id');
+        var modalFamTag = editAssetModal.querySelector('#edit_fam_tag_number');
+        var modalType = editAssetModal.querySelector('#edit_device_type');
+        var modalName = editAssetModal.querySelector('#edit_device_name');
+        var modalSerial = editAssetModal.querySelector('#edit_serial_number');
+        var modalDateReceived = editAssetModal.querySelector('#edit_date_received');
+        var modalStatus = editAssetModal.querySelector('#edit_status');
+
+        modalTitle.textContent = 'Edit Asset: ' + famTag;
+        modalAssetId.value = assetId;
+        modalFamTag.value = famTag;
+        modalType.value = type;
+        modalName.value = name;
+        modalSerial.value = serial;
+        modalDateReceived.value = dateReceived; 
+        modalStatus.value = status; 
         
-        // Populate form fields
-        deleteAssetModal.querySelector('#delete_asset_id').value = assetId;
-        deleteAssetModal.querySelector('#delete_asset_tag').textContent = famTag;
+        var inUseOption = modalStatus.querySelector('option[value="In Use"]');
+        if (inUseOption) {
+            // Always disable 'In Use' to enforce Transmittal process
+            inUseOption.disabled = true;
+        }
     });
+    
+    // JavaScript to populate the Delete Modal (RE-ADDED LOGIC)
+    var deleteAssetModal = document.getElementById('deleteAssetModal');
+    deleteAssetModal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget; 
+        
+        var assetId = button.getAttribute('data-id');
+        var famTag = button.getAttribute('data-tag');
 
-    // ... (Your existing JavaScript for the Edit Modal should be here) ...
+        var modalAssetId = deleteAssetModal.querySelector('#delete_asset_id');
+        var modalFamTagSpan = deleteAssetModal.querySelector('#delete_fam_tag');
 
+        modalAssetId.value = assetId;
+        modalFamTagSpan.textContent = famTag;
+    });
 </script>
 
 </body>
