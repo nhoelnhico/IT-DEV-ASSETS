@@ -49,16 +49,20 @@ if (!empty($employee_id)) {
             $stmt_assets->execute([$employee_id]);
             $assigned_assets = $stmt_assets->fetchAll();
             
-            // 3. FIX: Fetch Assigned Software Licenses from the new table
+            // 3. CORRECT FIX: Fetch Assigned Software Licenses from the new tables
             $sql_software = "
                 SELECT 
-                    name, version, license_type, license_key
+                    s.name, s.version, s.license_type, sa.license_key
                 FROM 
-                    software_licenses 
+                    software_assignments sa  -- The table that links employee to license
+                JOIN
+                    software_items s ON sa.software_id = s.software_id -- Joins to get software details
                 WHERE 
-                    employee_id = ?
+                    sa.employee_id = ?
+                AND 
+                    sa.status = 'Active' -- Only show licenses that are currently active
                 ORDER BY 
-                    name ASC
+                    s.name ASC
             ";
             $stmt_software = $pdo->prepare($sql_software);
             $stmt_software->execute([$employee_id]);
@@ -66,7 +70,8 @@ if (!empty($employee_id)) {
         }
 
     } catch (\PDOException $e) {
-        $error_message = "Database Error: Could not retrieve data. Error: " . $e->getMessage();
+        // Catch the specific error and display it
+        $error_message = "Database Error: Could not retrieve data. Error: SQLSTATE[" . $e->getCode() . "]: " . $e->getMessage();
     }
 }
 // Calculate total assigned items for the warning message

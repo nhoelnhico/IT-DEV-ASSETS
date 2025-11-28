@@ -162,6 +162,8 @@ if ($current_id_to_fetch) {
             <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
+             <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software Inventory</a> 
+<a class="list-group-item list-group-item-action bg-dark active" href="software_assignment.php">🔑 License Assignment</a>
             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
