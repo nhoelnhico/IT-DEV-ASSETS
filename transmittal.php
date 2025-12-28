@@ -1,5 +1,5 @@
 <?php
-require_once 'includes/config.php';
+require_once 'includes/config.php'; // Ensure your config file is correctly included
 
 $message = ''; 
 
@@ -85,10 +85,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['record_transmittal']))
     }
 }
 
-// 3. Fetch the transmittal history for display
+// 3. Fetch the transmittal history for display with date range
+// Initialize date range variables
+$start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01'); // Default to start of current month
+$end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d');     // Default to current date
+
+// Basic validation and formatting for SQL
+$start_date_sql = $start_date ? $start_date . ' 00:00:00' : null;
+$end_date_sql = $end_date ? $end_date . ' 23:59:59' : null;
+
+$where_clause = ' WHERE 1=1 ';
+$params = [];
+
+if ($start_date_sql) {
+    $where_clause .= ' AND t.transmittal_date >= ? ';
+    $params[] = $start_date_sql;
+}
+
+if ($end_date_sql) {
+    $where_clause .= ' AND t.transmittal_date <= ? ';
+    $params[] = $end_date_sql;
+}
+
 $sql_history = "
     SELECT 
-        t.transmittal_date, t.transaction_type, t.remarks, 
+        t.transmittal_id, t.transmittal_date, t.transaction_type, t.remarks, 
         a.fam_tag_number, a.device_name, 
         ef.name AS from_name, et.name AS to_name
     FROM 
@@ -99,11 +120,19 @@ $sql_history = "
         employees ef ON t.from_id = ef.employee_id
     LEFT JOIN 
         employees et ON t.to_id = et.employee_id
+    {$where_clause}
     ORDER BY 
-        t.transmittal_date DESC LIMIT 10
+        t.transmittal_date DESC
 ";
-$history_stmt = $pdo->query($sql_history);
-$transmittal_history = $history_stmt->fetchAll();
+
+try {
+    $history_stmt = $pdo->prepare($sql_history);
+    $history_stmt->execute($params);
+    $transmittal_history = $history_stmt->fetchAll();
+} catch (\PDOException $e) {
+    $message = '<div class="alert alert-danger">Error fetching history: ' . $e->getMessage() . '</div>';
+    $transmittal_history = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -121,6 +150,49 @@ $transmittal_history = $history_stmt->fetchAll();
         .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
         .sidebar-nav a[href="transmittal.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
         @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+        
+        /* === Print Styles Fix === */
+        @media print {
+            /* Hide non-essential elements for printing */
+            .d-print-none, #sidebar-wrapper, nav, .alert, .card.border-warning { 
+                display: none !important; 
+            }
+
+            /* Ensure the body and print-area display */
+            body { 
+                margin-top: 0; 
+                padding-top: 0; 
+            }
+            
+            #print-area { 
+                display: block !important; 
+                width: 100%; 
+                margin: 0; 
+                padding: 0; 
+            }
+            
+            /* Ensure table content is visible and readable */
+            #print-area .card-header, #print-area .card-body { 
+                border: none !important; 
+                padding: 0; 
+            }
+            .table-responsive { 
+                overflow: visible !important; 
+            }
+            .table, .table td, .table th {
+                font-size: 10pt; /* Smaller font for printing */
+                border-color: #ccc !important;
+            }
+            .badge { 
+                border: 1px solid #000; 
+                padding: 3px; 
+            }
+            h2 { 
+                font-size: 1.5rem; 
+                margin-top: 10px; 
+                margin-bottom: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -133,24 +205,14 @@ $transmittal_history = $history_stmt->fetchAll();
             <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
             <a class="list-group-item list-group-item-action bg-dark active" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
-            <div class="container-fluid">
-                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
-                <div class="collapse navbar-collapse">
-                    <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">Logout</a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </nav>
+        
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4">📝 Asset Transmittal</h1>
+            <h1 class="mt-4 mb-4">IT Department - Asset Transmittal</h1>
             
             <?php echo $message; ?>
 
@@ -179,6 +241,7 @@ $transmittal_history = $history_stmt->fetchAll();
                                     <option 
                                         value="<?php echo $asset['asset_id']; ?>" 
                                         data-status="<?php echo $asset['status']; ?>"
+                                        data-current-user="<?php echo $asset['current_user_id'] ? $asset['current_user_id'] : ''; ?>" 
                                     >
                                         <?php echo htmlspecialchars($asset['fam_tag_number']) . ' - ' . htmlspecialchars($asset['device_name']); ?> 
                                         (Status: <?php echo $asset['status']; ?>)
@@ -226,9 +289,30 @@ $transmittal_history = $history_stmt->fetchAll();
                 </div>
             </div>
             
-            <div class="card shadow-lg">
-                <div class="card-header bg-white border-bottom">Recent Transmittal History</div>
+            <div class="card shadow-lg" id="print-area">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                    <h2 class="h5 mb-0"> Transmittal History</h2>
+                    <button class="btn btn-outline-secondary btn-sm d-print-none" onclick="window.print()">🖨️ Print History</button>
+                </div>
                 <div class="card-body">
+                    
+                    <form method="GET" action="transmittal.php" class="row g-3 align-items-end mb-4 d-print-none">
+                        <div class="col-md-4">
+                            <label for="start_date" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="start_date" name="start_date" value="<?php echo htmlspecialchars($start_date); ?>">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="end_date" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="end_date" name="end_date" value="<?php echo htmlspecialchars($end_date); ?>">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-primary w-100">Filter History</button>
+                        </div>
+                    </form>
+                    
+                    <p class="text-muted d-print-none">Displaying transmittals from **<?php echo htmlspecialchars($start_date); ?>** to **<?php echo htmlspecialchars($end_date); ?>**.</p>
+                    <hr class="d-print-none">
+
                     <div class="table-responsive">
                         <table class="table table-striped table-hover align-middle">
                             <thead>
@@ -246,7 +330,7 @@ $transmittal_history = $history_stmt->fetchAll();
                                 </tr>
                                 <?php endforeach; ?>
                                 <?php if (empty($transmittal_history)): ?>
-                                <tr><td colspan="6" class="text-center text-muted">No transmittals recorded yet.</td></tr>
+                                <tr><td colspan="6" class="text-center text-muted">No transmittals recorded in this date range.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -268,9 +352,11 @@ $transmittal_history = $history_stmt->fetchAll();
     const assetSelect = document.getElementById('asset_id');
     const fromSelect = document.getElementById('from_id');
     const toSelect = document.getElementById('to_id');
+    
+    // Store original asset options for filtering
     const initialAssetOptions = Array.from(assetSelect.options).slice(1);
 
-    // --- Signature Pad Logic (Simple Canvas Drawing) ---
+    // --- Signature Pad Logic ---
     const ctx = canvas.getContext('2d');
     let drawing = false;
 
@@ -279,21 +365,23 @@ $transmittal_history = $history_stmt->fetchAll();
     canvas.addEventListener('mouseup', () => { drawing = false; });
     clearButton.addEventListener('click', () => { ctx.clearRect(0, 0, canvas.width, canvas.height); signature_data_input.value = ''; });
 
-    // Final step before submission: Capture signature data
     transmittalForm.addEventListener('submit', function(e) {
         const dataURL = canvas.toDataURL('image/png');
-        if (dataURL.length < 2000) { // Crude check for a blank canvas
+        if (dataURL.length < 2000) { 
             alert("Please provide a signature before recording the transmittal.");
             e.preventDefault();
             return;
         }
-
         signature_data_input.value = dataURL;
     });
 
-    // --- Client-side Transmittal Filtering Logic ---
+    // --- Core Transmittal Filtering and Lookup Logic ---
     transactionType.addEventListener('change', filterTransmittalForm);
+    assetSelect.addEventListener('change', lookupAssetUser); 
 
+    /**
+     * Filters asset and employee dropdowns based on IN/OUT type and resets selections.
+     */
     function filterTransmittalForm() {
         const type = transactionType.value;
         
@@ -308,6 +396,7 @@ $transmittal_history = $history_stmt->fetchAll();
             // OUT: FROM must be Inventory (0). TO must be an Employee.
             fromSelect.value = 0;
             fromSelect.disabled = true;
+            toSelect.disabled = false;
 
             // Filter assets: only show 'Available' assets
             initialAssetOptions.forEach(option => {
@@ -315,14 +404,12 @@ $transmittal_history = $history_stmt->fetchAll();
                     assetSelect.appendChild(option.cloneNode(true));
                 }
             });
-            // Ensure the TO dropdown is active and not set to Inventory
-            toSelect.value = ''; 
-            toSelect.disabled = false;
-
+            
         } else if (type === 'IN') {
             // IN: FROM must be an Employee. TO must be Inventory (0).
             toSelect.value = 0;
             toSelect.disabled = true;
+            fromSelect.disabled = false;
 
             // Filter assets: only show 'In Use' assets
             initialAssetOptions.forEach(option => {
@@ -330,18 +417,51 @@ $transmittal_history = $history_stmt->fetchAll();
                     assetSelect.appendChild(option.cloneNode(true));
                 }
             });
-            // Ensure the FROM dropdown is active and not set to Inventory
-            fromSelect.value = ''; 
-            fromSelect.disabled = false;
-
+            
         } else {
-             // If "Select Type..." is chosen, show all filterable assets
-             initialAssetOptions.forEach(option => assetSelect.appendChild(option.cloneNode(true)));
+            // If "Select Type..." is chosen
+            initialAssetOptions.forEach(option => assetSelect.appendChild(option.cloneNode(true)));
+            fromSelect.disabled = false;
+            toSelect.disabled = false;
+        }
+        
+        // Ensure lookup is run after the type changes and assets are filtered
+        lookupAssetUser(); 
+    }
+    
+    /**
+     * Looks up the current user of a selected asset and populates the FROM field for IN transmittals.
+     */
+    function lookupAssetUser() {
+        const type = transactionType.value;
+        const selectedOption = assetSelect.options[assetSelect.selectedIndex];
+        
+        // Reset the FROM field unless we are processing an IN transmittal
+        if (type === 'IN') {
+            fromSelect.value = '';
+        }
+
+        if (type === 'IN' && selectedOption.value) {
+            // Read the data-current-user attribute from the selected asset option
+            const currentUserId = selectedOption.dataset.currentUser;
+            
+            if (currentUserId && currentUserId !== '0') {
+                // Auto-select the employee who currently holds the asset
+                fromSelect.value = currentUserId;
+            } else if (currentUserId === '0') {
+                 // Should not happen if assets are filtered correctly, but good to reset.
+                fromSelect.value = '';
+            } else {
+                 // Asset is selected but user data is missing
+                 alert("Warning: Asset is 'In Use' but current user data is missing. Please select FROM employee manually.");
+            }
         }
     }
 
-    // Initial load setup (to ensure correct options are loaded)
+
+    // Initial load setup 
     filterTransmittalForm(); 
+    
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");

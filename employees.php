@@ -90,6 +90,7 @@ $employee_count = count($employees);
             <a class="list-group-item list-group-item-action bg-dark active" href="employees.php">🧑‍💻 Employees</a>
             <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
         </div>
     </div>
     <div id="page-content-wrapper">
@@ -107,7 +108,7 @@ $employee_count = count($employees);
         </nav>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4">🧑‍💻 Employee Management</h1>
+            <h1 class="mt-4 mb-4"> Employee Management</h1>
             
             <?php echo $message; ?>
 
