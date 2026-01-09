@@ -263,7 +263,7 @@ $employee_count = count($employees);
                                 <label for="name" class="form-label">Full Name</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light text-muted"><i class="bi bi-person"></i></span>
-                                    <input type="text" class="form-control" id="name" name="name" placeholder="e.g. John Doe" required>
+                                    <input type="text" class="form-control" id="name" name="name" placeholder="e.g. Nhico" required>
                                 </div>
                             </div>
                             <div class="col-md-3">

@@ -1,133 +1,86 @@
 <?php
-require_once 'includes/config.php'; 
+require_once 'includes/config.php';
 
 $message = ''; 
-$error_message = '';
-$employees = [];
-$software_items = [];
+$search_term = '';
+$search_condition = " WHERE sa.status = 'Active' "; // Default to showing Active only? Or all? Let's show Active by default or all with status.
+// Let's show ALL but order by Active first
+$search_params = [];
 
-// --- 1. Fetch Employee and Software Data for Dropdowns ---
-try {
-    // Fetch all employees
-    $employees_stmt = $pdo->query('SELECT employee_id, name FROM employees ORDER BY name ASC');
-    $employees = $employees_stmt->fetchAll();
-
-    // Fetch all software items and calculate available licenses
-    $sql_software = "
-        SELECT 
-            s.software_id, s.name, s.version, s.total_licenses,
-            COALESCE(SUM(CASE WHEN sa.status = 'Active' THEN 1 ELSE 0 END), 0) AS licenses_in_use
-        FROM 
-            software_items s
-        LEFT JOIN 
-            software_assignments sa ON s.software_id = sa.software_id
-        GROUP BY
-            s.software_id, s.name, s.version, s.total_licenses
-        ORDER BY 
-            s.name ASC
-    ";
-    $software_stmt = $pdo->query($sql_software);
-    $software_items = $software_stmt->fetchAll();
-
-} catch (\PDOException $e) {
-    $error_message = "Error loading initial data: " . htmlspecialchars($e->getMessage());
+// --- 1. HANDLE SEARCH ---
+if (isset($_GET['search']) && !empty($_GET['search'])) {
+    $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
+    $search_condition .= " AND (e.name LIKE ? OR s.name LIKE ? OR sa.license_key LIKE ?) ";
+    $like_term = '%' . $search_term . '%';
+    $search_params = [$like_term, $like_term, $like_term];
 }
 
-
-// --- 2. Handle License ASSIGNMENT (OUT) ---
+// --- 2. HANDLE ASSIGNMENT (ADD) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_license'])) {
-    
-    // Sanitize and collect data
-    $software_id = filter_input(INPUT_POST, 'software_id', FILTER_SANITIZE_NUMBER_INT);
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
-    // Removed license_key input field and variable
+    $software_id = filter_input(INPUT_POST, 'software_id', FILTER_SANITIZE_NUMBER_INT);
+    $license_key = filter_input(INPUT_POST, 'license_key', FILTER_SANITIZE_STRING);
+    $date_assigned = date('Y-m-d'); // Today
 
-    $date_assigned = date('Y-m-d'); // Current date
-
-    // Basic Validation (Only software and employee are required now)
-    if (empty($software_id) || empty($employee_id)) {
-        $message = '<div class="alert alert-danger">Both Software and Employee must be selected.</div>';
+    if (empty($employee_id) || empty($software_id)) {
+        $message = '<div class="alert alert-danger shadow-sm border-0">Employee and Software selection are required.</div>';
     } else {
+        // Check availability logic could go here, but for now we trust the user or the UI
         try {
-            // Check license availability (Crucial step)
-            $selected_software = array_filter($software_items, fn($s) => $s['software_id'] == $software_id);
-            $selected_software = reset($selected_software);
-
-            if ($selected_software) {
-                $available = $selected_software['total_licenses'] - $selected_software['licenses_in_use'];
-
-                if ($available <= 0) {
-                    $message = '<div class="alert alert-danger">Assignment Failed: No available licenses for ' . htmlspecialchars($selected_software['name']) . '.</div>';
-                } else {
-                    // Perform the assignment transaction
-                    // FIX: Changed NULL to '' (empty string) to bypass the NOT NULL constraint
-                    $sql = "INSERT INTO software_assignments (software_id, employee_id, license_key, status, date_assigned) VALUES (?, ?, '', 'Active', ?)";
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->execute([$software_id, $employee_id, $date_assigned]);
-
-                    // Reload the page to reflect updated counts
-                    header("Location: software_assignment.php?msg=" . urlencode("License assigned successfully!"));
-                    exit;
-                }
-            } else {
-                $message = '<div class="alert alert-danger">Invalid software selected.</div>';
-            }
-
+            $sql = "INSERT INTO software_assignments (employee_id, software_id, license_key, date_assigned, status) VALUES (?, ?, ?, ?, 'Active')";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$employee_id, $software_id, $license_key, $date_assigned]);
+            $message = '<div class="alert alert-success shadow-sm border-0"><i class="bi bi-check-circle-fill me-2"></i> License assigned successfully!</div>';
         } catch (\PDOException $e) {
-            $message = '<div class="alert alert-danger">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+            $message = '<div class="alert alert-danger shadow-sm border-0">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
         }
     }
 }
 
-// --- 3. Handle License REVOCATION (IN) ---
+// --- 3. HANDLE REVOKE (UPDATE STATUS) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['revoke_license'])) {
+    $assignment_id = filter_input(INPUT_POST, 'revoke_assignment_id', FILTER_SANITIZE_NUMBER_INT);
     
-    $assignment_id = filter_input(INPUT_POST, 'assignment_id', FILTER_SANITIZE_NUMBER_INT);
-
     try {
-        // Update the status of the assignment to 'Revoked'
-        $sql = "UPDATE software_assignments SET status = 'Revoked' WHERE assignment_id = ?";
+        // We don't delete, we set to 'Inactive' so we keep the history
+        $sql = "UPDATE software_assignments SET status = 'Inactive' WHERE assignment_id = ?";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$assignment_id]);
-
-        // Reload the page to reflect updated counts
-        header("Location: software_assignment.php?msg=" . urlencode("License revoked successfully!"));
-        exit;
-
+        $message = '<div class="alert alert-success shadow-sm border-0"><i class="bi bi-archive-fill me-2"></i> License access revoked/archived.</div>';
     } catch (\PDOException $e) {
-        $message = '<div class="alert alert-danger">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+        $message = '<div class="alert alert-danger shadow-sm border-0">Error revoking license.</div>';
     }
 }
 
-// Check for successful message from a redirect
-if (isset($_GET['msg'])) {
-    $message = '<div class="alert alert-success">' . htmlspecialchars($_GET['msg']) . '</div>';
-}
+// --- 4. FETCH DATA FOR DROPDOWNS ---
+// Fetch Employees
+$emp_stmt = $pdo->query("SELECT employee_id, name FROM employees ORDER BY name ASC");
+$employees_list = $emp_stmt->fetchAll();
 
-// --- 4. Fetch Active Assignments for Revocation List ---
-$active_assignments = [];
-try {
-    $sql_active = "
-        SELECT 
-            sa.assignment_id, s.name AS software_name, s.license_type, 
-            e.name AS employee_name, e.employee_id, sa.date_assigned
-        FROM 
-            software_assignments sa
-        JOIN 
-            software_items s ON sa.software_id = s.software_id
-        JOIN
-            employees e ON sa.employee_id = e.employee_id
-        WHERE
-            sa.status = 'Active'
-        ORDER BY
-            sa.date_assigned DESC
-    ";
-    // Removed sa.license_key from SELECT
-    $active_assignments = $pdo->query($sql_active)->fetchAll();
-} catch (\PDOException $e) {
-    $error_message .= " | Error loading active assignments: " . htmlspecialchars($e->getMessage());
-}
+// Fetch Software
+$soft_stmt = $pdo->query("SELECT software_id, name, version FROM software_items ORDER BY name ASC");
+$software_list = $soft_stmt->fetchAll();
 
+// --- 5. FETCH ASSIGNMENTS LIST ---
+$sql_fetch = "
+    SELECT 
+        sa.assignment_id, sa.license_key, sa.date_assigned, sa.status,
+        e.name AS employee_name, e.department,
+        s.name AS software_name, s.version
+    FROM 
+        software_assignments sa
+    JOIN 
+        employees e ON sa.employee_id = e.employee_id
+    JOIN 
+        software_items s ON sa.software_id = s.software_id
+    {$search_condition}
+    ORDER BY 
+        sa.status ASC, sa.date_assigned DESC
+";
+$stmt = $pdo->prepare($sql_fetch);
+$stmt->execute($search_params);
+$assignments = $stmt->fetchAll();
+$count = count($assignments);
 ?>
 
 <!DOCTYPE html>
@@ -135,161 +88,302 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Software License Management - IT AM</title>
+    <title>IT Inventory | License Assignment</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
+
     <style>
-        /* Base Layout Styles (consistent across all pages) */
-        #sidebar-wrapper { 
-            min-height: 100vh; 
-            margin-left: -15rem; 
-            transition: margin .25s ease-out; 
-            background-color: #343a40; 
+        :root {
+            --primary-color: #4e73df;
+            --success-color: #1cc88a;
+            --info-color: #36b9cc;
+            --warning-color: #f6c23e;
+            --danger-color: #e74a3b;
+            --dark-sidebar: #2c3e50;
+            --light-bg: #f3f4f6;
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
         }
-        #sidebar-wrapper .sidebar-heading { 
-            padding: 0.875rem 1.25rem; 
-            font-size: 1.2rem; 
-            color: #ffffff; 
+
+        body {
+            background-color: var(--light-bg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #5a5c69;
         }
-        #page-content-wrapper { 
-            min-width: 100vw; 
+
+        /* Sidebar & Layout */
+        #sidebar-wrapper {
+            min-height: 100vh;
+            margin-left: -15rem;
+            transition: margin .25s ease-out;
+            background-color: var(--dark-sidebar);
+            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
         }
-        .sidebar-nav a { 
-            color: #adb5bd; 
-            padding: 1rem 1.25rem; 
-            display: block; 
-            text-decoration: none; 
+        #sidebar-wrapper .sidebar-heading {
+            padding: 1.5rem 1.25rem;
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #ecf0f1;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
-        .sidebar-nav a:hover { 
-            background-color: #495057; 
-            color: #ffffff; 
+        .sidebar-nav a {
+            color: #bdc3c7;
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
         }
-        .sidebar-nav a[href="software_assignment.php"] { 
-            background-color: #0d6efd; 
-            color: #ffffff; 
-            border-left: 5px solid #ffc107; 
-        } 
-        @media (min-width: 768px) { 
-            #sidebar-wrapper { 
-                margin-left: 0; 
-            } 
-            #page-content-wrapper { 
-                min-width: 0; 
-                width: 100%; 
-            } 
+        .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
+        .sidebar-nav a:hover { background-color: rgba(255,255,255,0.05); color: #fff; }
+        .sidebar-nav a.active { background-color: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid var(--info-color); }
+        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+
+        /* Card Styles */
+        .content-card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            background: white;
+            overflow: hidden;
+            margin-bottom: 2rem;
         }
+        .content-card .card-header {
+            background: white;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 1.25rem 1.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Table Styles */
+        .table-custom { margin-bottom: 0; }
+        .table-custom thead th {
+            background-color: #f8f9fc;
+            color: #858796;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            border-top: none;
+            padding: 1rem;
+        }
+        .table-custom tbody td {
+            padding: 1rem;
+            vertical-align: middle;
+            border-bottom: 1px solid #e3e6f0;
+        }
+        .table-custom tbody tr:hover { background-color: #f8f9fc; }
+
+        /* Avatar */
+        .avatar-circle {
+            width: 35px;
+            height: 35px;
+            background-color: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            margin-right: 12px;
+        }
+
+        /* License Key Code Style */
+        .license-key-box {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #f8f9fc;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #e3e6f0;
+            color: #e74a3b;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        /* Status Badges */
+        .badge-active { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); padding: 0.5em 0.8em; border-radius: 0.35rem; }
+        .badge-inactive { background-color: rgba(133, 135, 150, 0.1); color: #858796; padding: 0.5em 0.8em; border-radius: 0.35rem; }
+
     </style>
 </head>
 <body>
 
 <div class="d-flex" id="wrapper">
-    <div class="border-end bg-dark" id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Inventory System</div>
+    <div id="sidebar-wrapper">
+        <div class="sidebar-heading">IT Asset Manager</div>
         <div class="list-group list-group-flush sidebar-nav">
-            <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software Inventory</a> 
-            <a class="list-group-item list-group-item-action bg-dark active" href="software_assignment.php">🔑 License Assignment</a> 
-            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="employee_clearance.php">📄 Clearance Form</a>
+            <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
+            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
+            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
+            <a href="software_assignment.php" class="active"><i class="bi bi-key"></i> Licenses</a>
+            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
+            <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
         </div>
     </div>
-    <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
-            <div class="container-fluid">
-                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
-            </div>
-        </nav>
-        
-        <div class="container-fluid p-4">
-            <h1 class="mt-4">🔑 Software License Management</h1>
-            <p class="text-muted">Assign and revoke licenses to employees.</p>
-            
-            <?php 
-                if (!empty($message)) { echo $message; }
-                if (!empty($error_message)) { echo '<div class="alert alert-danger">' . htmlspecialchars($error_message) . '</div>'; }
-            ?>
 
-            <div class="card shadow mb-5">
-                <div class="card-header bg-primary text-white fw-bold">Assign New License (License OUT)</div>
-                <div class="card-body">
+    <div id="page-content-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3">
+            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
+            <div class="ms-auto text-secondary small fw-bold">License Management</div>
+        </nav>
+
+        <div class="container-fluid p-4">
+            <h3 class="mb-4 text-dark fw-bold">License Assignments</h3>
+            
+            <?php echo $message; ?>
+
+            <div class="content-card">
+                <div class="card-header">
+                    <span><i class="bi bi-person-fill-add me-2"></i> Grant License Access</span>
+                </div>
+                <div class="card-body p-4">
                     <form method="POST" action="software_assignment.php">
                         <input type="hidden" name="assign_license" value="1">
+                        
                         <div class="row g-3">
-                            <div class="col-md-6">
-                                <label for="software_id" class="form-label">Software Title</label>
-                                <select class="form-select" id="software_id" name="software_id" required>
-                                    <option value="">Select Software...</option>
-                                    <?php foreach ($software_items as $software): 
-                                        $available = $software['total_licenses'] - $software['licenses_in_use'];
-                                        $disabled = $available <= 0 ? 'disabled' : '';
-                                        $label = htmlspecialchars($software['name']) . ' (' . $available . ' available)';
-                                    ?>
-                                    <option value="<?php echo $software['software_id']; ?>" data-available="<?php echo $available; ?>" <?php echo $disabled; ?>>
-                                        <?php echo $label; ?>
-                                    </option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <div class="form-text text-danger" id="availability-warning"></div>
-                            </div>
-                            <div class="col-md-6">
-                                <label for="employee_id" class="form-label">Assign To Employee</label>
-                                <select class="form-select" id="employee_id" name="employee_id" required>
-                                    <option value="">Select Employee...</option>
-                                    <?php foreach ($employees as $employee): ?>
-                                    <option value="<?php echo $employee['employee_id']; ?>">
-                                        <?php echo htmlspecialchars($employee['name']); ?>
-                                    </option>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small text-muted text-uppercase">Select Employee</label>
+                                <select class="form-select select2" name="employee_id" required>
+                                    <option value="">Search Employee...</option>
+                                    <?php foreach ($employees_list as $emp): ?>
+                                        <option value="<?php echo $emp['employee_id']; ?>"><?php echo htmlspecialchars($emp['name']); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small text-muted text-uppercase">Select Software</label>
+                                <select class="form-select select2" name="software_id" required>
+                                    <option value="">Search Software...</option>
+                                    <?php foreach ($software_list as $soft): ?>
+                                        <option value="<?php echo $soft['software_id']; ?>">
+                                            <?php echo htmlspecialchars($soft['name']); ?> 
+                                            <?php echo $soft['version'] ? '(' . htmlspecialchars($soft['version']) . ')' : ''; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
-                        <div class="mt-4 text-end">
-                            <button type="submit" class="btn btn-success"><i class="bi bi-person-plus"></i> Assign License</button>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small text-muted text-uppercase">License Key (Optional)</label>
+                                <input type="text" class="form-control font-monospace" name="license_key" placeholder="XXXX-XXXX-XXXX-XXXX">
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12 text-end">
+                                <button type="submit" class="btn btn-primary px-4 shadow-sm">
+                                    <i class="bi bi-link-45deg me-1"></i> Assign License
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </div>
             </div>
 
-            <div class="card shadow">
-                <div class="card-header bg-danger text-white fw-bold">Active License Assignments (License IN / Revoke)</div>
-                <div class="card-body">
+            <div class="content-card">
+                <div class="card-header">
+                    <span><i class="bi bi-list-columns-reverse me-2"></i> Allocation Registry (<?php echo $count; ?>)</span>
+                    
+                    <form method="GET" action="software_assignment.php" class="d-flex" style="width: 280px;">
+                        <div class="input-group input-group-sm">
+                            <input 
+                                class="form-control" 
+                                type="search" 
+                                placeholder="Search Employee, Software..." 
+                                aria-label="Search" 
+                                name="search"
+                                value="<?php echo htmlspecialchars($search_term); ?>"
+                            >
+                            <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i></button>
+                            <?php if (!empty($search_term)): ?>
+                                <a href="software_assignment.php" class="btn btn-outline-danger"><i class="bi bi-x-lg"></i></a>
+                            <?php endif; ?>
+                        </div>
+                    </form>
+                </div>
+                <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover align-middle">
+                        <table class="table table-custom table-hover align-middle">
                             <thead>
                                 <tr>
-                                    <th>Software</th>
-                                    <th>Employee</th>
-                                    <th>Employee ID</th>
+                                    <th class="ps-4">Employee</th>
+                                    <th>Software Title</th>
+                                    <th>License Key / ID</th>
                                     <th>Date Assigned</th>
-                                    <th class="text-center">Action</th>
+                                    <th>Status</th>
+                                    <th class="text-end pe-4">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if (count($active_assignments) > 0): ?>
-                                    <?php foreach ($active_assignments as $assignment): ?>
-                                    <tr>
-                                        <td><?php echo htmlspecialchars($assignment['software_name'] . ' (' . $assignment['license_type'] . ')'); ?></td>
-                                        <td><?php echo htmlspecialchars($assignment['employee_name']); ?></td>
-                                        <td><?php echo htmlspecialchars($assignment['employee_id']); ?></td>
-                                        <td><?php echo htmlspecialchars($assignment['date_assigned']); ?></td>
-                                        <td class="text-center">
+                                <?php if ($count > 0): ?>
+                                    <?php foreach ($assignments as $row): 
+                                        $initials = strtoupper(substr($row['employee_name'], 0, 1));
+                                        $is_active = $row['status'] === 'Active';
+                                        $status_badge = $is_active ? 'badge-active' : 'badge-inactive';
+                                    ?>
+                                    <tr class="<?php echo !$is_active ? 'bg-light opacity-75' : ''; ?>">
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center">
+                                                <div class="avatar-circle shadow-sm" style="<?php echo !$is_active ? 'background-color:#858796;' : ''; ?>">
+                                                    <?php echo $initials; ?>
+                                                </div>
+                                                <div>
+                                                    <div class="fw-bold text-dark"><?php echo htmlspecialchars($row['employee_name']); ?></div>
+                                                    <div class="small text-muted"><?php echo htmlspecialchars($row['department']); ?></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold text-dark"><?php echo htmlspecialchars($row['software_name']); ?></div>
+                                            <div class="small text-muted"><?php echo htmlspecialchars($row['version']); ?></div>
+                                        </td>
+                                        <td>
+                                            <?php if ($row['license_key']): ?>
+                                                <span class="license-key-box"><?php echo htmlspecialchars($row['license_key']); ?></span>
+                                            <?php else: ?>
+                                                <span class="text-muted small">No Key / Floating</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-secondary small"><?php echo date('M d, Y', strtotime($row['date_assigned'])); ?></td>
+                                        <td>
+                                            <span class="<?php echo $status_badge; ?> fw-bold small">
+                                                <?php echo htmlspecialchars($row['status']); ?>
+                                            </span>
+                                        </td>
+                                        <td class="text-end pe-4">
+                                            <?php if ($is_active): ?>
                                             <button 
-                                                class="btn btn-sm btn-outline-danger revoke-btn"
-                                                data-bs-toggle="modal" 
+                                                class="btn btn-sm btn-outline-danger"
+                                                data-bs-toggle="modal"
                                                 data-bs-target="#revokeModal"
-                                                data-id="<?php echo htmlspecialchars($assignment['assignment_id']); ?>"
-                                                data-name="<?php echo htmlspecialchars($assignment['software_name']); ?>"
-                                                data-employee="<?php echo htmlspecialchars($assignment['employee_name']); ?>">
-                                                <i class="bi bi-box-arrow-in-left"></i> Revoke
+                                                data-id="<?php echo $row['assignment_id']; ?>"
+                                                data-name="<?php echo htmlspecialchars($row['employee_name']); ?>"
+                                                data-soft="<?php echo htmlspecialchars($row['software_name']); ?>"
+                                                title="Revoke License"
+                                            >
+                                                <i class="bi bi-x-circle"></i> Revoke
                                             </button>
+                                            <?php else: ?>
+                                                <span class="text-muted small fst-italic">Revoked</span>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="4" class="text-center text-muted">No active software licenses are currently assigned.</td>
+                                        <td colspan="6" class="text-center py-5 text-muted">
+                                            <i class="bi bi-inbox display-4 d-block mb-3 opacity-25"></i>
+                                            <?php if (!empty($search_term)): ?>
+                                                No assignments found matching "<?php echo htmlspecialchars($search_term); ?>".
+                                            <?php else: ?>
+                                                No licenses assigned yet. Use the form above.
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>
@@ -297,71 +391,67 @@ try {
                     </div>
                 </div>
             </div>
-
         </div>
     </div>
 </div>
 
-<div class="modal fade" id="revokeModal" tabindex="-1" aria-labelledby="revokeModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
+<div class="modal fade" id="revokeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
     <div class="modal-content">
+      <div class="modal-header border-0 bg-danger text-white">
+        <h5 class="modal-title fw-bold">Revoke Access</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
       <form method="POST" action="software_assignment.php">
-        <div class="modal-header bg-danger text-white">
-          <h5 class="modal-title" id="revokeModalLabel">Confirm License Revocation</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
+        <div class="modal-body p-4 text-center">
             <input type="hidden" name="revoke_license" value="1">
-            <input type="hidden" id="revoke_assignment_id" name="assignment_id">
-            <p>Are you sure you want to revoke the **<span id="revoke_software_name" class="fw-bold"></span>** license from **<span id="revoke_employee_name" class="fw-bold"></span>**?</p>
-            <p class="text-danger small">This action moves the license back to the available pool.</p>
+            <input type="hidden" id="revoke_assignment_id" name="revoke_assignment_id">
+            
+            <i class="bi bi-person-dash-fill text-danger display-4 mb-3"></i>
+            <p class="mb-2">Revoke license for:</p>
+            <h5 class="fw-bold" id="revoke_soft_name"></h5>
+            <p class="mb-3">from <strong id="revoke_emp_name"></strong>?</p>
+            
+            <div class="alert alert-light border small text-muted text-start">
+                <i class="bi bi-info-circle me-1"></i> This will mark the license as 'Inactive' and free it up for reassignment. History is preserved.
+            </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-danger">Yes, Revoke License</button>
+        <div class="modal-footer border-0 justify-content-center">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger shadow-sm">Confirm Revoke</button>
         </div>
       </form>
     </div>
   </div>
 </div>
 
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
 <script>
+    // Sidebar Toggle
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
-    
-    // Logic for the REVOKE modal to populate fields when opened
-    var revokeModal = document.getElementById('revokeModal');
-    revokeModal.addEventListener('show.bs.modal', function (event) {
-        var button = event.relatedTarget; // Button that triggered the modal
-        var assignmentId = button.getAttribute('data-id');
-        var softwareName = button.getAttribute('data-name');
-        var employeeName = button.getAttribute('data-employee');
-        
-        // Populate form fields
-        revokeModal.querySelector('#revoke_assignment_id').value = assignmentId;
-        revokeModal.querySelector('#revoke_software_name').textContent = softwareName;
-        revokeModal.querySelector('#revoke_employee_name').textContent = employeeName;
+
+    // Initialize Select2 for searchable dropdowns
+    $(document).ready(function() {
+        $('.select2').select2({
+            theme: "bootstrap-5",
+            width: '100%'
+        });
     });
 
-    // Optional: Add warning if user tries to select software with 0 available licenses
-    document.getElementById('software_id').addEventListener('change', function() {
-        const select = this;
-        const selectedOption = select.options[select.selectedIndex];
-        const warningDiv = document.getElementById('availability-warning');
-
-        if (selectedOption && selectedOption.hasAttribute('data-available')) {
-            const available = parseInt(selectedOption.getAttribute('data-available'));
-            if (available <= 0) {
-                warningDiv.textContent = 'WARNING: No licenses available. Cannot assign this software.';
-            } else {
-                warningDiv.textContent = '';
-            }
-        } else {
-            warningDiv.textContent = '';
-        }
+    // Revoke Modal Logic
+    var revokeModal = document.getElementById('revokeModal');
+    revokeModal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget; 
+        
+        revokeModal.querySelector('#revoke_assignment_id').value = button.getAttribute('data-id');
+        revokeModal.querySelector('#revoke_emp_name').textContent = button.getAttribute('data-name');
+        revokeModal.querySelector('#revoke_soft_name').textContent = button.getAttribute('data-soft');
     });
 </script>
 

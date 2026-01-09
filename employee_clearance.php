@@ -1,420 +1,308 @@
 <?php
-
 require_once 'includes/config.php';
 
 $employee_data = null;
 $assigned_assets = [];
-$assigned_software = []; // Variable to hold assigned software
+$assigned_software = [];
 $employee_id = '';
 $employees_list = [];
-$error_message = ''; // Added error variable
+$error_message = '';
 
-// Fetch list of all employees for the dropdown/search suggestions
+// Fetch all employees for dropdown
 try {
     $employees_stmt = $pdo->query('SELECT employee_id, name FROM employees ORDER BY name ASC');
     $employees_list = $employees_stmt->fetchAll();
-} catch (\PDOException $e) {
-    // Handle error quietly
-}
+} catch (\PDOException $e) { }
 
-// Check for selected employee ID from the form submission
+// Check for selected employee
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['select_employee'])) {
     $employee_id = filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT);
 } elseif (isset($_GET['id'])) {
-    // Allows direct linking/testing with ?id=123
     $employee_id = filter_input(INPUT_GET, 'id', FILTER_SANITIZE_NUMBER_INT);
 }
 
 if (!empty($employee_id)) {
     try {
-        // 1. Fetch Employee Details
-        $sql_employee = "SELECT employee_id, name, department, position FROM employees WHERE employee_id = ?";
-        $stmt_employee = $pdo->prepare($sql_employee);
-        $stmt_employee->execute([$employee_id]);
-        $employee_data = $stmt_employee->fetch();
+        // 1. Employee Details
+        $stmt = $pdo->prepare("SELECT employee_id, name, department, position FROM employees WHERE employee_id = ?");
+        $stmt->execute([$employee_id]);
+        $employee_data = $stmt->fetch();
 
         if ($employee_data) {
-            // 2. Fetch Assigned Hardware Assets
-            $sql_assets = "
-                SELECT 
-                    fam_tag_number, device_type, device_name, serial_number, status
-                FROM 
-                    assets
-                WHERE 
-                    current_user_id = ?
-                ORDER BY 
-                    device_type, fam_tag_number ASC
-            ";
-            $stmt_assets = $pdo->prepare($sql_assets);
+            // 2. Hardware
+            $stmt_assets = $pdo->prepare("SELECT fam_tag_number, device_type, device_name, serial_number, status FROM assets WHERE current_user_id = ? ORDER BY device_type");
             $stmt_assets->execute([$employee_id]);
             $assigned_assets = $stmt_assets->fetchAll();
             
-            // 3. Fetch Assigned Software Licenses
-            $sql_software = "
-                SELECT 
-                    s.name, s.version, s.license_type, sa.license_key
-                FROM 
-                    software_assignments sa  -- The table that links employee to license
-                JOIN
-                    software_items s ON sa.software_id = s.software_id -- Joins to get software details
-                WHERE 
-                    sa.employee_id = ?
-                AND 
-                    sa.status = 'Active' -- Only show licenses that are currently active
-                ORDER BY 
-                    s.name ASC
-            ";
-            $stmt_software = $pdo->prepare($sql_software);
-            $stmt_software->execute([$employee_id]);
-            $assigned_software = $stmt_software->fetchAll();
+            // 3. Software
+            $stmt_soft = $pdo->prepare("SELECT s.name, s.version, s.license_type, sa.license_key FROM software_assignments sa JOIN software_items s ON sa.software_id = s.software_id WHERE sa.employee_id = ? AND sa.status = 'Active'");
+            $stmt_soft->execute([$employee_id]);
+            $assigned_software = $stmt_soft->fetchAll();
         }
-
     } catch (\PDOException $e) {
-        // Catch the specific error and display it
-        $error_message = "Database Error: Could not retrieve data. Error: SQLSTATE[" . $e->getCode() . "]: " . $e->getMessage();
+        $error_message = "Error fetching data.";
     }
 }
-// Calculate total assigned items for the warning message
-$total_assigned = count($assigned_assets) + count($assigned_software);
+
+$total_items = count($assigned_assets) + count($assigned_software);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Inventory | Employee Clearance</title>
+    <title>Clearance Form | <?php echo $employee_data ? htmlspecialchars($employee_data['name']) : 'Select Employee'; ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
+
     <style>
-    /* --- SCREEN STYLES (for web viewing) --- */
-    body { background-color: #f8f9fa; }
-    #sidebar-wrapper { min-height: 100vh; margin-left: -15rem; transition: margin .25s ease-out; background-color: #343a40; }
-    #sidebar-wrapper .sidebar-heading { padding: 0.875rem 1.25rem; font-size: 1.2rem; color: #ffffff; }
-    #page-content-wrapper { min-width: 100vw; }
-    .sidebar-nav a { color: #adb5bd; padding: 1rem 1.25rem; display: block; text-decoration: none; }
-    .sidebar-nav a:hover { background-color: #495057; color: #ffffff; }
-    .sidebar-nav a[href="employee_clearance.php"] { background-color: #0d6efd; color: #ffffff; border-left: 5px solid #ffc107; } 
-    @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-    
-    /* --- PRINT STYLES (PDF Design Changes) --- */
-    @page {
-        size: A4;
-        margin: 0.3in; /* TIGHTER MARGIN */
-    }
-    @media print {
-        body { 
-            margin: 0; 
-            padding: 0; 
-            color: #000; 
-            background-color: #fff;
-            font-size: 10pt; /* Smaller font for professionalism */
+        :root {
+            --primary-color: #4e73df;
+            --dark-sidebar: #2c3e50;
+            --light-bg: #f3f4f6;
         }
-        #wrapper { 
-            display: block; 
-            width: 100%; 
+
+        body {
+            background-color: var(--light-bg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #5a5c69;
         }
-        /* Hide all UI elements */
-        #sidebar-wrapper, 
-        #search-form-container, 
-        #print-controls, 
-        .navbar, 
-        .alert,
-        .container-fluid > h1.mt-4.mb-4 { 
-            display: none !important; 
-        }
-        #page-content-wrapper { 
-            padding: 0;
-        }
-        .container-fluid { 
-            width: 100%; 
-            max-width: none;
-            padding: 0; 
-            margin: 0; 
-        }
-        /* Remove shadows, borders, and rounded corners from main card */
-        .card { 
-            border: none !important; 
-            box-shadow: none !important;
-            margin-bottom: 0;
-        }
-       .card-header {
-                /* NEW COLOR: #8CA9FF */
-                background-color: #8CA9FF !important; 
-                /* NEW TEXT COLOR: Black for visibility */
-                color: #000 !important; 
-                border-bottom: 3px solid #000 !important;
-                padding: 5px 0 !important; /* REDUCED PADDING */
-                margin-bottom: 10px !important; /* REDUCED MARGIN */
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
+
+        /* SCREEN ONLY STYLES */
+        @media screen {
+            #sidebar-wrapper {
+                min-height: 100vh;
+                margin-left: -15rem;
+                transition: margin .25s ease-out;
+                background-color: var(--dark-sidebar);
             }
-        .card-body {
-            padding: 0;
-        }
-        
-        /* Table Styling */
-        .table {
-            border: 1px solid #000 !important;
-            margin-top: 15px;
-        }
-        .table th, .table td {
-            padding: 5px;
-            border: 1px solid #ccc !important;
-        }
-        .table thead th {
-            background-color: #e9ecef !important; /* Light gray header */
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-            color: #000;
-            font-weight: bold;
-        }
-        .table-striped > tbody > tr:nth-of-type(odd) > * { 
-            background-color: #f7f7f7 !important; /* Very light shading for rows */
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
+            #sidebar-wrapper .sidebar-heading {
+                padding: 1.5rem 1.25rem;
+                font-size: 1.4rem;
+                font-weight: bold;
+                color: #ecf0f1;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+            }
+            .sidebar-nav a {
+                color: #bdc3c7;
+                padding: 1rem 1.25rem;
+                display: flex;
+                align-items: center;
+                text-decoration: none;
+                transition: all 0.3s;
+                border-left: 4px solid transparent;
+            }
+            .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
+            .sidebar-nav a:hover { background-color: rgba(255,255,255,0.05); color: #fff; }
+            .sidebar-nav a.active { background-color: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid #36b9cc; }
+            
+            @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
+
+            .paper-sheet {
+                background: white;
+                box-shadow: 0 0 15px rgba(0,0,0,0.1);
+                padding: 40px;
+                min-height: 800px;
+                max-width: 210mm; /* A4 width */
+                margin: 0 auto;
+                position: relative;
+            }
         }
 
-        /* Info Box Styling */
-        .row.mb-4.border.p-3.rounded {
-            border: 1px solid #000 !important;
-            padding: 10px !important;
-            border-radius: 0 !important; /* Remove rounded corners */
-            margin-bottom: 10px !important; /* Reduced margin */
+        /* PRINT STYLES - CRITICAL FOR CLEARANCE FORM */
+        @media print {
+            @page { margin: 0.5cm; size: A4 portrait; }
+            body { background: white; -webkit-print-color-adjust: exact; }
+            #sidebar-wrapper, .navbar, .no-print { display: none !important; }
+            .container-fluid { padding: 0 !important; margin: 0 !important; }
+            .paper-sheet {
+                box-shadow: none;
+                padding: 0;
+                margin: 0;
+                width: 100%;
+                max-width: 100%;
+            }
+            .btn, form { display: none; }
+            .card { border: none !important; }
+            .bg-dark { background-color: #000 !important; color: white !important; }
         }
 
-        /* Signature Block Styling */
-        .signature-box { 
-            margin: 20px auto 0 auto; /* REDUCED TOP MARGIN */
-            border-top: 1px solid #000; 
-            width: 80%;
-            text-align: center;
-            padding-top: 5px;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-        }
-        .text-muted.small {
-            font-size: 8pt !important;
-        }
-        
-        .text-primary { color: #000 !important; } /* Make headings black */
-        
-        /* Reduce final report margin */
-        p.mt-5.text-muted.small {
-            margin-top: 20px !important; 
-        }
-    }
-</style>
+        /* Common Table Styles for the Form */
+        .form-table th { background-color: #eee !important; color: #000; text-transform: uppercase; font-size: 0.8rem; }
+        .form-table td { font-size: 0.9rem; }
+        .signature-line { border-top: 1px solid #000; width: 80%; margin: 40px auto 5px auto; }
+    </style>
 </head>
 <body>
 
 <div class="d-flex" id="wrapper">
-    <div class="border-end bg-dark" id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Inventory System</div>
+    <div id="sidebar-wrapper">
+        <div class="sidebar-heading">IT Asset Manager</div>
         <div class="list-group list-group-flush sidebar-nav">
-            <a class="list-group-item list-group-item-action bg-dark" href="index.php">📊 Dashboard</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="software_inventory.php">💾 Software Inventory</a> 
-            <a class="list-group-item list-group-item-action bg-dark" href="software_assignment.php">🔑 License Assignment</a>
-             <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a> 
-            <a class="list-group-item list-group-item-action bg-dark active" href="employee_clearance.php">📄 Clearance Form</a>
+            <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
+            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
+            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
+            <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
+            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
+            <a href="employee_clearance.php" class="active"><i class="bi bi-file-earmark-check"></i> Clearance</a>
         </div>
     </div>
+
     <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
-            <div class="container-fluid">
-                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
-            </div>
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3 no-print">
+            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
+            <div class="ms-auto text-secondary small fw-bold">Generate Clearance</div>
         </nav>
 
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4">📄 Employee Asset Clearance Form</h1>
             
-            <?php if (!empty($error_message)): ?>
-                <div class="alert alert-danger"><?php echo htmlspecialchars($error_message); ?></div>
-            <?php endif; ?>
-
-            <div class="card shadow-sm mb-5" id="search-form-container">
-                <div class="card-header bg-secondary text-white fw-bold">Select Employee</div>
-                <div class="card-body">
-                    <form method="POST" action="employee_clearance.php">
-                        <input type="hidden" name="select_employee" value="1"> 
-                        <div class="row g-3 align-items-end">
-                            <div class="col-md-6">
-                                <label for="employee_id" class="form-label">Employee Name or ID</label>
-                                <select class="form-select" id="employee_id" name="employee_id" required>
-                                    <option value="">Select Employee...</option>
-                                    <?php foreach ($employees_list as $emp): ?>
-                                    <option 
-                                        value="<?php echo $emp['employee_id']; ?>" 
-                                        <?php echo ($emp['employee_id'] == $employee_id) ? 'selected' : ''; ?>
-                                    >
-                                        <?php echo htmlspecialchars($emp['name']) . ' (ID: ' . htmlspecialchars($emp['employee_id']) . ')'; ?>
+            <div class="card shadow-sm mb-4 border-0 no-print">
+                <div class="card-body bg-white rounded">
+                    <form method="POST" action="employee_clearance.php" class="row align-items-end g-3">
+                        <input type="hidden" name="select_employee" value="1">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary">Select Employee for Clearance</label>
+                            <select class="form-select select2" name="employee_id" required>
+                                <option value="">Search Employee Name or ID...</option>
+                                <?php foreach ($employees_list as $emp): ?>
+                                    <option value="<?php echo $emp['employee_id']; ?>" <?php echo ($emp['employee_id'] == $employee_id) ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($emp['name']); ?>
                                     </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <button type="submit" class="btn btn-primary w-100">Load Clearance Form</button>
-                            </div>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-primary w-100 shadow-sm"><i class="bi bi-file-earmark-text me-2"></i> Generate Form</button>
+                        </div>
+                        <?php if ($employee_data): ?>
+                        <div class="col-md-3">
+                            <button type="button" onclick="window.print()" class="btn btn-success w-100 shadow-sm"><i class="bi bi-printer me-2"></i> Print / PDF</button>
+                        </div>
+                        <?php endif; ?>
                     </form>
                 </div>
             </div>
 
             <?php if ($employee_data): ?>
-
-                <div id="print-controls" class="mb-4">
-                    <button class="btn btn-success" onclick="window.print()"><i class="bi bi-printer"></i> Print / Save as PDF</button>
-                    <?php if ($total_assigned > 0): ?>
-                        <span class="text-danger ms-3 fw-bold">NOTE: <?php echo $total_assigned; ?> IT asset(s) are still assigned (Hardware and/or Software).</span>
-                    <?php else: ?>
-                        <span class="text-success ms-3 fw-bold">Clearance Ready: No assets currently assigned.</span>
-                    <?php endif; ?>
+            <div class="paper-sheet">
+                <div class="text-center mb-5 border-bottom pb-3">
+                    <h2 class="fw-bold mb-0">IT ASSET ACCOUNTABILITY FORM</h2>
+                    <p class="text-muted small mb-0">CHROMAESTHETICS INC. | IT DEPARTMENT</p>
+                    <p class="text-muted small">Generated: <?php echo date('F d, Y'); ?></p>
                 </div>
 
-                <div class="card shadow-lg mb-5">
-                    <div class="card-header bg-primary text-white fw-bold text-center">
-                        <h4 class="mb-0">IT ASSET CLEARANCE FORM</h4>
-                        <p class="text-white mb-0 small">CHROMAESTHETICS INC | Issued on: <?php echo date('Y-m-d'); ?></p>
+                <div class="row mb-4">
+                    <div class="col-6 mb-2"><strong>Employee Name:</strong> <span class="border-bottom border-dark px-2 d-inline-block w-75"><?php echo htmlspecialchars($employee_data['name']); ?></span></div>
+                    <div class="col-6 mb-2"><strong>Employee ID:</strong> <span class="border-bottom border-dark px-2 d-inline-block w-75"><?php echo htmlspecialchars($employee_data['employee_id']); ?></span></div>
+                    <div class="col-6 mb-2"><strong>Department:</strong> <span class="border-bottom border-dark px-2 d-inline-block w-75"><?php echo htmlspecialchars($employee_data['department']); ?></span></div>
+                    <div class="col-6 mb-2"><strong>Position:</strong> <span class="border-bottom border-dark px-2 d-inline-block w-75"><?php echo htmlspecialchars($employee_data['position']); ?></span></div>
+                </div>
+
+                <?php if ($total_items > 0): ?>
+                    <div class="alert alert-warning border-dark text-center fw-bold no-print">
+                        <i class="bi bi-exclamation-triangle"></i> WARNING: This employee still has <?php echo $total_items; ?> items assigned. They must be returned before signing.
                     </div>
-                    <div class="card-body p-4">
-                        
-                        <h5 class="mb-3 text-primary">Employee Information</h5>
-                        <div class="row mb-4 border p-3 rounded">
-                            <div class="col-md-6"><strong>Name:</strong> <?php echo htmlspecialchars($employee_data['name']); ?></div>
-                            <div class="col-md-6"><strong>Employee ID:</strong> <?php echo htmlspecialchars($employee_data['employee_id']); ?></div>
-                            <div class="col-md-6"><strong>Department:</strong> <?php echo htmlspecialchars($employee_data['department']); ?></div>
-                            <div class="col-md-6"><strong>Position:</strong> <?php echo htmlspecialchars($employee_data['position']); ?></div>
-                        </div>
+                <?php else: ?>
+                    <div class="alert alert-success border-success text-center fw-bold no-print">
+                        <i class="bi bi-check-circle"></i> CLEAR: No active assets found. Ready for clearance signature.
+                    </div>
+                <?php endif; ?>
 
-                        <h5 class="mt-4 mb-3 text-primary">Assigned Hardware Assets (Current Status)</h5>
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-striped align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>FAM Tag Number</th>
-                                        <th>Device Type</th>
-                                        <th>Device Model</th>
-                                        <th>Serial Number</th>
-                                        <th class="text-center">Current Status</th>
-                                        <th class="text-center">IT Check (Returned)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php $i = 1; if (count($assigned_assets) > 0): ?>
-                                        <?php foreach ($assigned_assets as $asset): ?>
-                                        <tr>
-                                            <td><?php echo $i++; ?></td>
-                                            <td><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
-                                            <td><?php echo htmlspecialchars($asset['device_type']); ?></td>
-                                            <td><?php echo htmlspecialchars($asset['device_name']); ?></td>
-                                            <td><?php echo htmlspecialchars($asset['serial_number']); ?></td>
-                                            <td class="text-center">
-                                                <span class="asset-status"><?php echo htmlspecialchars($asset['status']); ?></span>
-                                            </td>
-                                            <td class="text-center"></td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td colspan="7" class="text-center text-success fw-bold">NO HARDWARE ASSETS CURRENTLY ASSIGNED.</td>
-                                        </tr>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        <h5 class="mt-5 mb-3 text-primary">Assigned Software Licenses</h5>
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-striped align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Software Name</th>
-                                        <th>Version</th>
-                                        <th>License Type</th>
-                                        <th>License Key / ID</th>
-                                        <th class="text-center">IT Check (Revoked)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php $j = 1; if (count($assigned_software) > 0): ?>
-                                        <?php foreach ($assigned_software as $software): ?>
-                                        <tr>
-                                            <td><?php echo $j++; ?></td>
-                                            <td><?php echo htmlspecialchars($software['name']); ?></td>
-                                            <td><?php echo htmlspecialchars($software['version']); ?></td>
-                                            <td><?php echo htmlspecialchars($software['license_type']); ?></td>
-                                            <td><?php echo htmlspecialchars($software['license_key']); ?></td>
-                                            <td class="text-center"></td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td colspan="6" class="text-center text-success fw-bold">NO SOFTWARE LICENSES CURRENTLY ASSIGNED.</td>
-                                        </tr>
-                                        <?php endif; ?>
-                                        
-                                    <?php 
-                                        // Add empty rows for formality if needed, ensuring minimum height
-                                        $rows_to_add = 3 - count($assigned_software);
-                                        for ($k = 1; $k <= $rows_to_add; $k++): 
-                                    ?>
-                                        <tr>
-                                            <td><?php echo count($assigned_software) + $k; ?></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td class="text-center"></td>
-                                        </tr>
-                                    <?php endfor; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        <h5 class="mt-5 mb-3 text-primary">Clearance Signatures</h5>
-                        <div class="row text-center">
-                            
-                            <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
-                                <div class="signature-box">Employee Name and Signature</div>
-                                <small class="text-muted">I confirm the return/revocation of all listed assets and licenses.</small>
-                            </div>
-                            
-                            <div class="col-lg-4 col-md-6 mb-4 mb-lg-0">
-                                <div class="signature-box">Noted by: IT Department</div>
-                                <small class="text-muted">All listed assets/licenses have been returned/revoked.</small>
-                            </div>
+                <h5 class="fw-bold mt-4 text-uppercase border-bottom border-2 border-dark pb-1">I. Hardware Assets</h5>
+                <table class="table table-bordered form-table border-dark">
+                    <thead>
+                        <tr>
+                            <th width="5%">#</th>
+                            <th width="20%">Asset Tag</th>
+                            <th width="35%">Description / Model</th>
+                            <th width="20%">Serial No.</th>
+                            <th width="20%" class="text-center">Status / Return Check</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $i=1; foreach ($assigned_assets as $asset): ?>
+                        <tr>
+                            <td><?php echo $i++; ?></td>
+                            <td class="fw-bold"><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
+                            <td><?php echo htmlspecialchars($asset['device_type'] . ' - ' . $asset['device_name']); ?></td>
+                            <td><?php echo htmlspecialchars($asset['serial_number']); ?></td>
+                            <td class="text-center"><?php echo htmlspecialchars($asset['status']); ?> <span class="ms-2">⬜</span></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php if (empty($assigned_assets)): ?>
+                        <tr><td colspan="5" class="text-center fst-italic">No hardware currently assigned.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
 
-                            <div class="col-lg-4 col-md-12">
-                                <div class="signature-box">Approved by: (IT MANAGER)</div>
-                                <small class="text-muted">Final approval for asset clearance.</small>
-                            </div>
-                        </div>
+                <h5 class="fw-bold mt-4 text-uppercase border-bottom border-2 border-dark pb-1">II. Software Licenses</h5>
+                <table class="table table-bordered form-table border-dark">
+                    <thead>
+                        <tr>
+                            <th width="5%">#</th>
+                            <th width="40%">Software Title</th>
+                            <th width="35%">License Key / Account</th>
+                            <th width="20%" class="text-center">Revoke Check</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $j=1; foreach ($assigned_software as $soft): ?>
+                        <tr>
+                            <td><?php echo $j++; ?></td>
+                            <td><?php echo htmlspecialchars($soft['name'] . ' ' . $soft['version']); ?></td>
+                            <td class="font-monospace"><?php echo htmlspecialchars($soft['license_key'] ? $soft['license_key'] : 'Assigned Account'); ?></td>
+                            <td class="text-center">Active <span class="ms-2">⬜</span></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php if (empty($assigned_software)): ?>
+                        <tr><td colspan="4" class="text-center fst-italic">No software licenses assigned.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
 
-                        <p class="mt-5 text-muted small">Clearance Report generated by the IT Inventory System on <?php echo date('Y-m-d H:i:s'); ?>.</p>
-
+                <div class="row mt-5 pt-5 text-center">
+                    <div class="col-4">
+                        <div class="signature-line"></div>
+                        <p class="mb-0 fw-bold"><?php echo htmlspecialchars($employee_data['name']); ?></p>
+                        <small class="text-muted">Employee Signature</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="signature-line"></div>
+                        <p class="mb-0 fw-bold">IT Personnel</p>
+                        <small class="text-muted">Checked By</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="signature-line"></div>
+                        <p class="mb-0 fw-bold">Department Head</p>
+                        <small class="text-muted">Approved By</small>
                     </div>
                 </div>
 
-            <?php elseif ($employee_id): ?>
-                <div class="alert alert-warning">No employee found with ID: **<?php echo htmlspecialchars($employee_id); ?>**. Please select a valid employee.</div>
+                <div class="text-center mt-5 pt-5 text-muted small">
+                    <p>By signing this form, the employee acknowledges the return/surrender of all listed company properties.</p>
+                </div>
+
+            </div>
             <?php endif; ?>
 
         </div>
     </div>
 </div>
 
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
+    $(document).ready(function() {
+        $('.select2').select2({ theme: "bootstrap-5", width: '100%' });
+    });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/js/bootstrap-select.min.js"></script>
-
 </body>
 </html>
