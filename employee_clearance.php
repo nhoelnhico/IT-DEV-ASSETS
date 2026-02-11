@@ -189,7 +189,7 @@ $total_items = count($assigned_assets) + count($assigned_software);
             <?php if ($employee_data): ?>
             <div class="paper-sheet">
                 <div class="text-center mb-5 border-bottom pb-3">
-                    <h2 class="fw-bold mb-0">IT ASSET ACCOUNTABILITY FORM</h2>
+                    <h2 class="fw-bold mb-0">IT CLEARANCE FORM</h2>
                     <p class="text-muted small mb-0">CHROMAESTHETICS INC. | IT DEPARTMENT</p>
                     <p class="text-muted small">Generated: <?php echo date('F d, Y'); ?></p>
                 </div>
