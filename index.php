@@ -1,27 +1,29 @@
 <?php
 // 1. Include the database connection
-require_once 'includes/config.php'; // Adjust path if necessary
+require_once 'includes/config.php';
 
-// Initialize variables with default values in case of DB error
+// Initialize variables
 $total_employees = 0;
 $assets_in_use = 0;
 $assets_available = 0;
 $assets_broken = 0;
 $transmittal_history = [];
+// Default chart data to 0 to prevent JS errors if DB is empty
 $asset_status_data = [
     'In Use' => 0,
     'Available' => 0,
-    'Broken' => 0
+    'Broken' => 0,
+    'Repairing' => 0
 ];
 
 try {
-    // 2. Fetch key metrics for the cards
+    // 2. Fetch key metrics
     $total_employees = $pdo->query("SELECT COUNT(*) FROM employees")->fetchColumn();
     $assets_in_use = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'In Use'")->fetchColumn();
     $assets_available = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Available'")->fetchColumn();
     $assets_broken = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Broken'")->fetchColumn();
     
-    // 3. Fetch recent transmittals for the table
+    // 3. Fetch recent transmittals
     $sql_history = "
         SELECT 
             t.transmittal_date, t.transaction_type, 
@@ -41,7 +43,7 @@ try {
     $history_stmt = $pdo->query($sql_history);
     $transmittal_history = $history_stmt->fetchAll();
 
-    // 4. Fetch data for Chart.js - Asset Status Breakdown
+    // 4. Fetch data for Chart.js
     $chart_data_stmt = $pdo->query("SELECT status, COUNT(*) as count FROM assets GROUP BY status");
     $raw_chart_data = $chart_data_stmt->fetchAll();
 
@@ -50,10 +52,7 @@ try {
     }
 
 } catch (\PDOException $e) {
-    // In case the DB connection or query fails
-    // Log the error in a real application, for now, we'll just set defaults
-    // error_log("Dashboard DB Error: " . $e->getMessage()); 
-    // echo "Database error: " . $e->getMessage(); // For debugging only, remove in production
+    // Handle error silently or log it
 }
 ?>
 
@@ -64,241 +63,333 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IT Inventory | Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
-        body {
-            background-color: #f8f9fa; /* Light gray background */
+        :root {
+            /* Professional Color Palette matching Cards & Graph */
+            --primary-color: #4e73df; /* Blue - In Use */
+            --success-color: #1cc88a; /* Green - Available */
+            --danger-color: #e74a3b;  /* Red - Broken */
+            --info-color: #36b9cc;    /* Cyan - Employees/Total */
+            --dark-sidebar: #2c3e50;
+            --light-bg: #f3f4f6;
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
         }
+
+        body {
+            background-color: var(--light-bg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* Sidebar Styling */
         #sidebar-wrapper {
             min-height: 100vh;
             margin-left: -15rem;
             transition: margin .25s ease-out;
-            background-color: #343a40; /* Dark sidebar */
+            background-color: var(--dark-sidebar);
+            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
         }
         #sidebar-wrapper .sidebar-heading {
-            padding: 0.875rem 1.25rem;
-            font-size: 1.2rem;
-            color: #ffffff;
-        }
-        #page-content-wrapper {
-            min-width: 100vw;
+            padding: 1.5rem 1.25rem;
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #ecf0f1;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
         .sidebar-nav a {
-            color: #adb5bd; /* Light gray text */
+            color: #bdc3c7;
             padding: 1rem 1.25rem;
-            display: block;
+            display: flex;
+            align-items: center;
             text-decoration: none;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
         }
+        .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
         .sidebar-nav a:hover {
-            background-color: #495057; /* Slightly lighter hover */
-            color: #ffffff;
+            background-color: rgba(255,255,255,0.05);
+            color: #fff;
         }
-        /* Style for active page */
         .sidebar-nav a.active {
-            background-color: #0d6efd; /* Bootstrap primary color */
-            color: #ffffff;
-            border-left: 5px solid #ffc107; /* Highlight with a secondary color */
+            background-color: rgba(255,255,255,0.1);
+            color: #fff;
+            border-left: 4px solid var(--info-color);
         }
-        /* Show sidebar on larger screens and when toggled */
+        
+        /* Main Content */
+        #page-content-wrapper { min-width: 100vw; }
         @media (min-width: 768px) {
-            #sidebar-wrapper {
-                margin-left: 0;
-            }
-            #page-content-wrapper {
-                min-width: 0;
-                width: 100%;
-            }
+            #sidebar-wrapper { margin-left: 0; }
+            #page-content-wrapper { min-width: 0; width: 100%; }
         }
+
+        /* Dashboard Cards */
+        .stat-card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.2s ease-in-out;
+            background: #fff;
+            overflow: hidden;
+            height: 100%;
+        }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-card .card-body { padding: 1.5rem; position: relative; z-index: 2; }
+        
+        /* Decorative Side Borders */
+        .border-left-primary { border-left: 5px solid var(--primary-color) !important; }
+        .border-left-success { border-left: 5px solid var(--success-color) !important; }
+        .border-left-danger  { border-left: 5px solid var(--danger-color) !important; }
+        .border-left-info    { border-left: 5px solid var(--info-color) !important; }
+
+        /* Typography */
+        .text-xs { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+        .h5-number { font-size: 1.8rem; font-weight: 700; color: #5a5c69; margin-bottom: 0; }
+        
+        /* Icons in Cards */
+        .icon-box {
+            opacity: 0.3;
+            transform: rotate(-15deg);
+            position: absolute;
+            right: 15px;
+            top: 20px;
+            font-size: 3rem;
+        }
+
+        /* Content Sections */
+        .content-card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            background: white;
+            margin-bottom: 2rem;
+        }
+        .content-card .card-header {
+            background: white;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 1rem 1.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            border-radius: 12px 12px 0 0;
+        }
+
+        /* Table Styling */
+        .table-custom th {
+            background-color: #f8f9fc;
+            color: #858796;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            border-top: none;
+        }
+        .badge-status { font-weight: 500; padding: 0.5em 0.75em; }
+
     </style>
 </head>
 <body>
 
 <div class="d-flex" id="wrapper">
 
-    <div class="border-end bg-dark" id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Inventory System</div>
+    <div id="sidebar-wrapper">
+        <div class="sidebar-heading">IT Asset Manager</div>
         <div class="list-group list-group-flush sidebar-nav">
-            <a class="list-group-item list-group-item-action bg-dark active" href="index.php">📊 Dashboard</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="employees.php">🧑‍💻 Employees</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="inventory.php">📦 Inventory</a>
-            <a class="list-group-item list-group-item-action bg-dark" href="transmittal.php">📝 Transmittal Log</a>
+            <a href="index.php" class="active"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
+            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
+            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
+            <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
+            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
+            <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
         </div>
     </div>
+
     <div id="page-content-wrapper">
 
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
-            <div class="container-fluid">
-                <button class="btn btn-primary" id="sidebarToggle">Toggle Menu</button>
-                <div class="collapse navbar-collapse">
-                    <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">Logout</a>
-                        </li>
-                    </ul>
-                </div>
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3">
+            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
+            <div class="ms-auto fw-bold text-secondary small">
+                <?php echo date('l, F j, Y'); ?>
             </div>
         </nav>
+
         <div class="container-fluid p-4">
-            <h1 class="mt-4 mb-4">Dashboard Overview</h1>
+            <h3 class="mb-4 text-dark fw-bold">Dashboard Overview</h3>
+
+            <div class="row g-4 mb-5">
+                
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card border-left-info">
+                        <div class="card-body">
+                            <div class="text-xs text-info">Total Employees</div>
+                            <div class="h5-number"><?php echo number_format($total_employees); ?></div>
+                            <i class="bi bi-people-fill icon-box text-info"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card border-left-primary">
+                        <div class="card-body">
+                            <div class="text-xs text-primary">Assets In Use</div>
+                            <div class="h5-number"><?php echo number_format($assets_in_use); ?></div>
+                            <i class="bi bi-pc-display icon-box text-primary"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card border-left-success">
+                        <div class="card-body">
+                            <div class="text-xs text-success">Available Stock</div>
+                            <div class="h5-number"><?php echo number_format($assets_available); ?></div>
+                            <i class="bi bi-box-seam-fill icon-box text-success"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card border-left-danger">
+                        <div class="card-body">
+                            <div class="text-xs text-danger">Broken / Repair</div>
+                            <div class="h5-number"><?php echo number_format($assets_broken); ?></div>
+                            <i class="bi bi-tools icon-box text-danger"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <div class="row g-4">
                 
-                <div class="col-lg-3 col-md-6">
-                    <div class="card bg-primary text-white shadow-lg">
-                        <div class="card-body">
-                            <h5 class="card-title">Total Employees</h5>
-                            <h2 class="card-text display-4">
-                                <?php echo $total_employees; ?>
-                            </h2>
-                        </div>
-                        <div class="card-footer bg-primary border-0">
-                            <a href="employees.php" class="text-white small">View Details →</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-lg-3 col-md-6">
-                    <div class="card bg-success text-white shadow-lg">
-                        <div class="card-body">
-                            <h5 class="card-title">Assets In Use</h5>
-                            <h2 class="card-text display-4">
-                                <?php echo $assets_in_use; ?>
-                            </h2>
-                        </div>
-                        <div class="card-footer bg-success border-0">
-                            <a href="inventory.php" class="text-white small">View Inventory →</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-lg-3 col-md-6">
-                    <div class="card bg-warning text-dark shadow-lg">
-                        <div class="card-body">
-                            <h5 class="card-title">Assets Available</h5>
-                            <h2 class="card-text display-4">
-                                <?php echo $assets_available; ?>
-                            </h2>
-                        </div>
-                        <div class="card-footer bg-warning border-0">
-                            <a href="inventory.php" class="text-dark small">Ready for Assignment →</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-lg-3 col-md-6">
-                    <div class="card bg-danger text-white shadow-lg">
-                        <div class="card-body">
-                            <h5 class="card-title">Broken Devices</h5>
-                            <h2 class="card-text display-4">
-                                <?php echo $assets_broken; ?>
-                            </h2>
-                        </div>
-                        <div class="card-footer bg-danger border-0">
-                            <a href="inventory.php" class="text-white small">Needs Repair →</a>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-            <div class="row mt-5 g-4">
-                <div class="col-lg-7">
-                    <div class="card shadow-lg">
-                        <div class="card-header bg-white">
-                            Asset Status Breakdown
-                        </div>
-                        <div class="card-body">
-                            <canvas id="assetStatusChart" class="p-3"></canvas> 
-                        </div>
-                    </div>
-                </div>
-
                 <div class="col-lg-5">
-                    <div class="card shadow-lg">
-                        <div class="card-header bg-white">
-                            Recent Transmittals (Log)
+                    <div class="content-card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-pie-chart-fill me-2"></i>Asset Status Distribution</span>
                         </div>
-                        <div class="card-body">
+                        <div class="card-body d-flex justify-content-center align-items-center position-relative">
+                            <div style="height: 300px; width: 100%;">
+                                <canvas id="assetStatusChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-7">
+                    <div class="content-card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-clock-history me-2"></i>Recent Activity Log</span>
+                            <a href="transmittal.php" class="btn btn-sm btn-primary">View All</a>
+                        </div>
+                        <div class="card-body p-0">
                             <div class="table-responsive">
-                                <table class="table table-striped table-sm">
+                                <table class="table table-hover table-custom mb-0 align-middle">
                                     <thead>
                                         <tr>
-                                            <th>Date</th>
-                                            <th>Asset Tag</th>
-                                            <th>Type</th>
-                                            <th>To Employee</th>
-                                            
+                                            <th class="ps-4">Date</th>
+                                            <th>Transaction</th>
+                                            <th>Asset</th>
+                                            <th>Involved</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php foreach ($transmittal_history as $log): ?>
+                                        <?php foreach ($transmittal_history as $log): 
+                                            // Style the badge based on transaction type
+                                            $badgeClass = ($log['transaction_type'] == 'Return') ? 'bg-warning text-dark' : 'bg-primary';
+                                            if ($log['transaction_type'] == 'Repair') $badgeClass = 'bg-danger';
+                                            
+                                            // Determine who was involved
+                                            $involved = $log['transaction_type'] == 'Issue' ? $log['to_name'] : $log['from_name'];
+                                        ?>
                                         <tr>
-                                            <td><?php echo date('Y-m-d', strtotime($log['transmittal_date'])); ?></td>
-                                            <td><?php echo htmlspecialchars($log['fam_tag_number']); ?></td>
-                                            <td><span class="badge <?php echo $log['transaction_type'] == 'OUT' ? 'bg-danger' : 'bg-success'; ?>"><?php echo $log['transaction_type']; ?></span></td>
-                                            <td><?php echo $log['to_name'] ? htmlspecialchars($log['to_name']) : 'Inventory'; ?></td>
+                                            <td class="ps-4 text-muted small"><?php echo date('M d, Y', strtotime($log['transmittal_date'])); ?></td>
+                                            <td><span class="badge <?php echo $badgeClass; ?> badge-status"><?php echo htmlspecialchars($log['transaction_type']); ?></span></td>
+                                            <td class="fw-bold text-dark"><?php echo htmlspecialchars($log['fam_tag_number']); ?></td>
+                                            <td class="text-secondary"><?php echo $involved ? htmlspecialchars($involved) : 'Inventory'; ?></td>
                                         </tr>
                                         <?php endforeach; ?>
                                         <?php if (empty($transmittal_history)): ?>
-                                        <tr><td colspan="4" class="text-center text-muted">No recent transmittals recorded.</td></tr>
+                                        <tr><td colspan="4" class="text-center py-4 text-muted">No recent activity found.</td></tr>
                                         <?php endif; ?>
                                     </tbody>
                                 </table>
                             </div>
-                            <a href="transmittal.php" class="btn btn-sm btn-outline-primary float-end">View All</a>
                         </div>
                     </div>
                 </div>
+
             </div>
 
         </div>
-        </div>
     </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
-    // Custom JavaScript for Toggling the Sidebar
+    // Sidebar Toggle Script
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
 
-    // Chart.js Data and Configuration
+    // Chart.js Configuration
+    // HEX CODES MUST MATCH THE CSS VARIABLES ABOVE
+    const colorPalette = {
+        inUse: '#4e73df',    // Blue
+        available: '#1cc88a', // Green
+        broken: '#e74a3b',    // Red
+        repairing: '#f6c23e', // Yellow
+        hover: '#858796'
+    };
+
     const ctx = document.getElementById('assetStatusChart').getContext('2d');
     const assetStatusChart = new Chart(ctx, {
-        type: 'doughnut', // Or 'pie'
+        type: 'doughnut',
         data: {
-            labels: ['In Use', 'Available', 'Broken'],
+            labels: ['In Use', 'Available', 'Broken', 'Repairing'],
             datasets: [{
-                // PHP to JS: Pass the data from the backend
                 data: [
-                    <?php echo $asset_status_data['In Use']; ?>, 
-                    <?php echo $asset_status_data['Available']; ?>, 
-                    <?php echo $asset_status_data['Broken']; ?>
+                    <?php echo $asset_status_data['In Use'] ?? 0; ?>, 
+                    <?php echo $asset_status_data['Available'] ?? 0; ?>, 
+                    <?php echo $asset_status_data['Broken'] ?? 0; ?>,
+                    <?php echo $asset_status_data['Repairing'] ?? 0; ?>
                 ],
                 backgroundColor: [
-                    'rgba(13, 110, 253, 0.8)', // Bootstrap primary blue
-                    'rgba(25, 135, 84, 0.8)',  // Bootstrap success green
-                    'rgba(220, 53, 69, 0.8)'   // Bootstrap danger red
+                    colorPalette.inUse,
+                    colorPalette.available,
+                    colorPalette.broken,
+                    colorPalette.repairing
                 ],
-                borderColor: [
-                    '#fff',
-                    '#fff',
-                    '#fff'
+                hoverBackgroundColor: [
+                    '#2e59d9', // Darker Blue
+                    '#17a673', // Darker Green
+                    '#e02d1b', // Darker Red
+                    '#dda20a'  // Darker Yellow
                 ],
-                borderWidth: 1
+                hoverBorderColor: "rgba(234, 236, 244, 1)",
+                borderWidth: 4
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false, // Allow chart to resize more freely
+            maintainAspectRatio: false,
+            cutout: '75%', // Makes the donut thinner for a modern look
             plugins: {
                 legend: {
-                    position: 'top',
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true,
+                        font: { size: 12 }
+                    }
                 },
-                title: {
-                    display: true,
-                    text: 'Current Asset Status Breakdown'
+                tooltip: {
+                    backgroundColor: "rgb(255,255,255)",
+                    bodyColor: "#858796",
+                    borderColor: '#dddfeb',
+                    borderWidth: 1,
+                    titleColor: '#6e707e',
+                    displayColors: true,
+                    caretPadding: 10,
                 }
             }
         }
