@@ -27,7 +27,7 @@ try {
     $assets_available = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Available'")->fetchColumn();
     $assets_broken = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Broken'")->fetchColumn();
     
-    // 3. Fetch Device Type counts (Aligned with your column name: device_type)
+    // 3. Fetch Device Type counts
     $type_stmt = $pdo->query("SELECT device_type, COUNT(*) as count FROM assets GROUP BY device_type");
     $raw_types = $type_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
@@ -35,12 +35,11 @@ try {
         if (array_key_exists($type, $device_stats)) {
             $device_stats[$type] = (int)$count;
         } else {
-            // Fallback for any unusual types not in our list
             $device_stats['Other'] += (int)$count;
         }
     }
 
-    // 4. Fetch recent transmittals joining Assets and Employees
+    // 4. Fetch recent transmittals
     $sql_history = "
         SELECT 
             t.transmittal_date, t.transaction_type, 
@@ -93,17 +92,34 @@ try {
             --info-color: #36b9cc;    
             --dark-sidebar: #2c3e50;
             --light-bg: #f3f4f6;
-            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
+            --sidebar-width: 250px;
         }
 
-        body { background-color: var(--light-bg); font-family: 'Segoe UI', sans-serif; }
+        body { 
+            background-color: var(--light-bg); 
+            font-family: 'Segoe UI', sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* --- SIDEBAR FIXES --- */
+        #wrapper {
+            display: flex;
+            width: 100%;
+            align-items: stretch;
+        }
 
         #sidebar-wrapper {
+            min-width: var(--sidebar-width);
+            max-width: var(--sidebar-width);
             min-height: 100vh;
-            margin-left: -15rem;
-            transition: margin .25s ease-out;
             background-color: var(--dark-sidebar);
+            transition: all 0.3s;
         }
+
+        #sidebar-wrapper.toggled {
+            margin-left: calc(-1 * var(--sidebar-width));
+        }
+
         #sidebar-wrapper .sidebar-heading {
             padding: 1.5rem 1.25rem;
             font-size: 1.2rem;
@@ -111,29 +127,37 @@ try {
             color: #fff;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
+
         .sidebar-nav a {
             color: #bdc3c7;
-            padding: 1rem 1.25rem;
+            padding: 0.8rem 1.5rem;
             display: flex;
             align-items: center;
             text-decoration: none;
             transition: 0.3s;
         }
+
+        .sidebar-nav a i { margin-right: 12px; font-size: 1.1rem; }
         .sidebar-nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
         .sidebar-nav a.active { background: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid var(--info-color); }
-        
-        #page-content-wrapper { min-width: 100vw; }
-        @media (min-width: 768px) {
-            #sidebar-wrapper { margin-left: 0; }
-            #page-content-wrapper { min-width: 0; width: 100%; }
+
+        /* --- CONTENT FIXES --- */
+        #page-content-wrapper {
+            width: 100%;
+            transition: all 0.3s;
         }
 
+        /* Mobile specific sidebar behavior */
+        @media (max-width: 768px) {
+            #sidebar-wrapper { margin-left: calc(-1 * var(--sidebar-width)); }
+            #sidebar-wrapper.toggled { margin-left: 0; }
+        }
+
+        /* Cards & Styling */
         .stat-card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: var(--card-shadow);
-            background: #fff;
-            position: relative;
+            border: none; border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            background: #fff; position: relative;
         }
         .border-left-primary { border-left: 5px solid var(--primary-color); }
         .border-left-success { border-left: 5px solid var(--success-color); }
@@ -144,35 +168,29 @@ try {
         .h5-number { font-size: 1.5rem; font-weight: 700; color: #5a5c69; }
         
         .icon-box {
-            opacity: 0.2;
-            position: absolute;
-            right: 15px;
-            top: 15px;
-            font-size: 2.5rem;
+            opacity: 0.15; position: absolute;
+            right: 15px; top: 15px; font-size: 2.5rem;
         }
 
-        .content-card { border: none; border-radius: 12px; box-shadow: var(--card-shadow); background: white; }
-        .content-card .card-header { background: white; border-bottom: 1px solid #e3e6f0; font-weight: 700; color: var(--primary-color); padding: 1rem; }
-
         .mini-card {
-            background: #fff;
-            border-radius: 10px;
-            padding: 12px;
-            text-align: center;
+            background: #fff; border-radius: 10px; padding: 12px; text-align: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
     </style>
 </head>
 <body>
 
-<div class="d-flex" id="wrapper">
+<div id="wrapper">
     <div id="sidebar-wrapper">
-        <div class="sidebar-heading">IT ASSET TRACKER</div>
+        <div class="sidebar-heading">IT Asset Manager</div>
         <div class="list-group list-group-flush sidebar-nav">
-            <a href="index.php" class="active"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
-            <a href="inventory.php"><i class="bi bi-box-seam me-2"></i> Inventory</a>
-            <a href="employees.php"><i class="bi bi-people me-2"></i> Employees</a>
-            <a href="transmittal.php"><i class="bi bi-arrow-left-right me-2"></i> Transmittals</a>
+            <a href="index.php" class="active"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
+            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
+            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
+            <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
+            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
+            <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
         </div>
     </div>
 
@@ -183,7 +201,7 @@ try {
         </nav>
 
         <div class="container-fluid p-4">
-            <h4 class="mb-4 fw-bold">Executive Dashboard</h4>
+            <h4 class="mb-4 fw-bold text-dark">Executive Dashboard</h4>
 
             <div class="row g-4 mb-4">
                 <div class="col-md-3">
@@ -220,12 +238,9 @@ try {
                 <div class="col-12"><h6 class="text-uppercase small fw-bold text-muted">Inventory Breakdown</h6></div>
                 <?php 
                 $icons = [
-                    'Laptop' => 'bi-laptop',
-                    'Desktop' => 'bi-pc-display',
-                    'Company Phone' => 'bi-phone',
-                    'Monitor' => 'bi-display',
-                    'Tablet' => 'bi-tablet',
-                    'Other' => 'bi-cpu'
+                    'Laptop' => 'bi-laptop', 'Desktop' => 'bi-pc-display',
+                    'Company Phone' => 'bi-phone', 'Monitor' => 'bi-display',
+                    'Tablet' => 'bi-tablet', 'Other' => 'bi-cpu'
                 ];
                 foreach($device_stats as $type => $count): 
                 ?>
@@ -241,8 +256,8 @@ try {
 
             <div class="row g-4">
                 <div class="col-lg-5">
-                    <div class="content-card h-100">
-                        <div class="card-header">Asset Status Distribution</div>
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-white fw-bold text-primary py-3">Asset Status Distribution</div>
                         <div class="card-body" style="min-height: 300px;">
                             <canvas id="statusChart"></canvas>
                         </div>
@@ -250,10 +265,10 @@ try {
                 </div>
 
                 <div class="col-lg-7">
-                    <div class="content-card h-100">
-                        <div class="card-header d-flex justify-content-between">
-                            <span>Recent Activity</span>
-                            <a href="transmittal.php" class="btn btn-sm btn-link p-0">View All</a>
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-white d-flex justify-content-between py-3">
+                            <span class="fw-bold text-primary">Recent Activity</span>
+                            <a href="transmittal.php" class="btn btn-sm btn-link p-0 text-decoration-none">View All</a>
                         </div>
                         <div class="card-body p-0">
                             <table class="table table-hover align-middle mb-0">
@@ -284,12 +299,11 @@ try {
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
-
-<script>
-    document.getElementById("sidebarToggle").onclick = () => document.getElementById("wrapper").classList.toggle("toggled");
+        </div> </div> </div> <script>
+    // FIXED TOGGLE SCRIPT
+    document.getElementById("sidebarToggle").onclick = function() {
+        document.getElementById("sidebar-wrapper").classList.toggle("toggled");
+    };
 
     const ctx = document.getElementById('statusChart').getContext('2d');
     new Chart(ctx, {
