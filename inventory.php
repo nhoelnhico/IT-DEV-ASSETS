@@ -1,17 +1,16 @@
 <?php
 require_once 'includes/config.php';
 
-$message = ''; 
+$message = '';
 $search_term = '';
 $search_condition = '';
 $search_params = [];
-$sort_by = 'a.fam_tag_number'; // Default sort
-$sort_order = 'ASC'; // Default order
+$sort_by = 'a.fam_tag_number';
+$sort_order = 'ASC';
 
 // --- 1. HANDLE SEARCH QUERY ---
 if (isset($_GET['search']) && !empty($_GET['search'])) {
-    $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
-    // Use LIKE for global search across FAM Tag, Serial, Type, or Name
+    $search_term = trim(filter_input(INPUT_GET, 'search', FILTER_SANITIZE_SPECIAL_CHARS));
     $search_condition = " WHERE a.fam_tag_number LIKE ? OR a.serial_number LIKE ? OR a.device_type LIKE ? OR a.device_name LIKE ?";
     $like_term = '%' . $search_term . '%';
     $search_params = [$like_term, $like_term, $like_term, $like_term];
@@ -19,39 +18,38 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 
 // --- 2. HANDLE SORTING PARAMETERS ---
 if (isset($_GET['sort_by'])) {
-    $requested_sort = filter_input(INPUT_GET, 'sort_by', FILTER_SANITIZE_STRING);
-    // Map valid column names to SQL columns
+    $requested_sort = filter_input(INPUT_GET, 'sort_by', FILTER_SANITIZE_SPECIAL_CHARS);
+
     $valid_columns = [
         'tag' => 'a.fam_tag_number',
         'type' => 'a.device_type',
         'status' => 'a.status',
         'date_received' => 'a.date_received'
     ];
-    
+
     if (isset($valid_columns[$requested_sort])) {
         $sort_by = $valid_columns[$requested_sort];
     }
 }
 
-if (isset($_GET['order']) && in_array(strtoupper($_GET['order']), ['ASC', 'DESC'])) {
+if (isset($_GET['order']) && in_array(strtoupper($_GET['order']), ['ASC', 'DESC'], true)) {
     $sort_order = strtoupper($_GET['order']);
 }
 
-
 // --- 3. HANDLE ADD NEW ASSET ---
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_asset'])) {
-    $fam_tag_number = filter_input(INPUT_POST, 'fam_tag_number', FILTER_SANITIZE_STRING);
-    $device_type = filter_input(INPUT_POST, 'device_type', FILTER_SANITIZE_STRING);
-    $device_name = filter_input(INPUT_POST, 'device_name', FILTER_SANITIZE_STRING);
-    $serial_number = filter_input(INPUT_POST, 'serial_number', FILTER_SANITIZE_STRING);
-    $date_received = filter_input(INPUT_POST, 'date_received', FILTER_SANITIZE_STRING); 
-    $initial_status = 'Available'; 
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['add_asset'])) {
+    $fam_tag_number = trim(filter_input(INPUT_POST, 'fam_tag_number', FILTER_SANITIZE_SPECIAL_CHARS));
+    $device_type = trim(filter_input(INPUT_POST, 'device_type', FILTER_SANITIZE_SPECIAL_CHARS));
+    $device_name = trim(filter_input(INPUT_POST, 'device_name', FILTER_SANITIZE_SPECIAL_CHARS));
+    $serial_number = trim(filter_input(INPUT_POST, 'serial_number', FILTER_SANITIZE_SPECIAL_CHARS));
+    $date_received = filter_input(INPUT_POST, 'date_received', FILTER_SANITIZE_SPECIAL_CHARS);
+    $initial_status = 'Available';
 
     if (empty($fam_tag_number) || empty($device_type) || empty($device_name) || empty($serial_number) || empty($date_received)) {
         $message = '<div class="alert alert-danger shadow-sm border-0"><i class="bi bi-exclamation-circle-fill me-2"></i> All fields, including Date Received, are required.</div>';
     } else {
         try {
-            $sql = "INSERT INTO assets (fam_tag_number, device_type, device_name, serial_number, date_received, status) 
+            $sql = "INSERT INTO assets (fam_tag_number, device_type, device_name, serial_number, date_received, status)
                     VALUES (?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $initial_status]);
@@ -68,60 +66,84 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_asset'])) {
 }
 
 // --- 4. HANDLE EDIT/UPDATE ASSET ---
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_asset'])) {
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['update_asset'])) {
     $asset_id = filter_input(INPUT_POST, 'edit_asset_id', FILTER_SANITIZE_NUMBER_INT);
-    $fam_tag_number = filter_input(INPUT_POST, 'edit_fam_tag_number', FILTER_SANITIZE_STRING);
-    $device_type = filter_input(INPUT_POST, 'edit_device_type', FILTER_SANITIZE_STRING);
-    $device_name = filter_input(INPUT_POST, 'edit_device_name', FILTER_SANITIZE_STRING);
-    $serial_number = filter_input(INPUT_POST, 'edit_serial_number', FILTER_SANITIZE_STRING);
-    $date_received = filter_input(INPUT_POST, 'edit_date_received', FILTER_SANITIZE_STRING);
-    $status = filter_input(INPUT_POST, 'edit_status', FILTER_SANITIZE_STRING);
+    $fam_tag_number = trim(filter_input(INPUT_POST, 'edit_fam_tag_number', FILTER_SANITIZE_SPECIAL_CHARS));
+    $device_type = trim(filter_input(INPUT_POST, 'edit_device_type', FILTER_SANITIZE_SPECIAL_CHARS));
+    $device_name = trim(filter_input(INPUT_POST, 'edit_device_name', FILTER_SANITIZE_SPECIAL_CHARS));
+    $serial_number = trim(filter_input(INPUT_POST, 'edit_serial_number', FILTER_SANITIZE_SPECIAL_CHARS));
+    $date_received = filter_input(INPUT_POST, 'edit_date_received', FILTER_SANITIZE_SPECIAL_CHARS);
+    $status = trim(filter_input(INPUT_POST, 'edit_status', FILTER_SANITIZE_SPECIAL_CHARS));
 
-    if (empty($asset_id) || empty($fam_tag_number) || empty($device_type) || empty($device_name) || empty($serial_number) || empty($status) || empty($date_received)) {
+    $allowed_statuses = ['Available', 'Broken', 'Repairing'];
+
+    if (
+        empty($asset_id) || empty($fam_tag_number) || empty($device_type) ||
+        empty($device_name) || empty($serial_number) || empty($date_received) ||
+        empty($status)
+    ) {
         $message = '<div class="alert alert-danger shadow-sm border-0">All fields are required for update.</div>';
+    } elseif (!in_array($status, $allowed_statuses, true)) {
+        $message = '<div class="alert alert-danger shadow-sm border-0">Invalid asset status selected.</div>';
     } else {
         try {
-            $sql = "UPDATE assets 
-                    SET fam_tag_number = ?, device_type = ?, device_name = ?, serial_number = ?, date_received = ?, status = ? 
-                    WHERE asset_id = ?";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $status, $asset_id]);
+            // Prevent manually setting "Available" while still assigned
+            $check_stmt = $pdo->prepare("SELECT current_user_id, status FROM assets WHERE asset_id = ?");
+            $check_stmt->execute([$asset_id]);
+            $existing_asset = $check_stmt->fetch();
 
-            $message = '<div class="alert alert-success shadow-sm border-0">Asset updated successfully.</div>';
+            if (!$existing_asset) {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Asset not found.</div>';
+            } elseif (!empty($existing_asset['current_user_id'])) {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Cannot manually update status of an assigned asset here. Use Transmittal to Return, Issue, or Repair assigned items.</div>';
+            } else {
+                $sql = "UPDATE assets
+                        SET fam_tag_number = ?, device_type = ?, device_name = ?, serial_number = ?, date_received = ?, status = ?
+                        WHERE asset_id = ?";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $status, $asset_id]);
 
+                $message = '<div class="alert alert-success shadow-sm border-0">Asset updated successfully.</div>';
+            }
         } catch (\PDOException $e) {
-            $message = '<div class="alert alert-danger shadow-sm border-0">Database Error: Could not update asset.</div>';
+            if ($e->getCode() == 23000) {
+                $message = '<div class="alert alert-warning shadow-sm border-0">Error: FAM Tag or Serial Number already exists.</div>';
+            } else {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Database Error: Could not update asset.</div>';
+            }
         }
     }
 }
 
 // --- 5. HANDLE DELETE ASSET ---
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_asset'])) {
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['delete_asset'])) {
     $asset_id_to_delete = filter_input(INPUT_POST, 'delete_asset_id', FILTER_SANITIZE_NUMBER_INT);
 
     if (empty($asset_id_to_delete)) {
         $message = '<div class="alert alert-danger shadow-sm border-0">Error: No asset ID provided.</div>';
     } else {
         try {
-            $check_sql = "SELECT fam_tag_number, status FROM assets WHERE asset_id = ?";
+            $check_sql = "SELECT fam_tag_number, status, current_user_id FROM assets WHERE asset_id = ?";
             $check_stmt = $pdo->prepare($check_sql);
             $check_stmt->execute([$asset_id_to_delete]);
             $asset_info = $check_stmt->fetch();
 
             if (!$asset_info) {
                 $message = '<div class="alert alert-warning shadow-sm border-0">Error: Asset not found.</div>';
-            } elseif ($asset_info['status'] == 'Available') {
+            } elseif (!empty($asset_info['current_user_id']) || $asset_info['status'] === 'In Use') {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Cannot delete asset. It is currently assigned.</div>';
+            } elseif (!in_array($asset_info['status'], ['Available', 'Broken', 'Repairing'], true)) {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Cannot delete asset because of invalid status.</div>';
+            } elseif ($asset_info['status'] !== 'Available') {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Cannot delete asset. Status must be <strong>Available</strong>.</div>';
+            } else {
                 $delete_sql = "DELETE FROM assets WHERE asset_id = ?";
                 $delete_stmt = $pdo->prepare($delete_sql);
                 $delete_stmt->execute([$asset_id_to_delete]);
 
                 header("Location: inventory.php?message=" . urlencode("Asset " . $asset_info['fam_tag_number'] . " deleted successfully."));
                 exit;
-
-            } else {
-                $message = '<div class="alert alert-danger shadow-sm border-0">Cannot delete asset. Status must be <strong>Available</strong>.</div>';
             }
-
         } catch (\PDOException $e) {
             $message = '<div class="alert alert-danger shadow-sm border-0">Database Error: Could not delete asset.</div>';
         }
@@ -132,17 +154,23 @@ if (isset($_GET['message'])) {
     $message = '<div class="alert alert-success shadow-sm border-0">' . htmlspecialchars($_GET['message']) . '</div>';
 }
 
-
 // --- 6. FETCH ALL ASSETS ---
 $sql_fetch = "
-    SELECT 
-        a.asset_id, a.fam_tag_number, a.device_type, a.device_name, a.serial_number, a.date_received, a.status, e.name AS current_user_name
-    FROM 
+    SELECT
+        a.asset_id,
+        a.fam_tag_number,
+        a.device_type,
+        a.device_name,
+        a.serial_number,
+        a.date_received,
+        a.status,
+        e.name AS current_user_name
+    FROM
         assets a
-    LEFT JOIN 
+    LEFT JOIN
         employees e ON a.current_user_id = e.employee_id
     {$search_condition}
-    ORDER BY 
+    ORDER BY
         {$sort_by} {$sort_order}
 ";
 $stmt_fetch = $pdo->prepare($sql_fetch);
@@ -160,7 +188,6 @@ $asset_count = count($assets);
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         :root {
-            /* Unified Palette */
             --primary-color: #4e73df;
             --success-color: #1cc88a;
             --info-color: #36b9cc;
@@ -177,7 +204,6 @@ $asset_count = count($assets);
             color: #5a5c69;
         }
 
-        /* Sidebar Styling */
         #sidebar-wrapper {
             min-height: 100vh;
             margin-left: -15rem;
@@ -211,9 +237,12 @@ $asset_count = count($assets);
             color: #fff;
             border-left: 4px solid var(--info-color);
         }
-        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-        
-        /* Card Styles */
+        #page-content-wrapper { min-width: 100vw; }
+        @media (min-width: 768px) {
+            #sidebar-wrapper { margin-left: 0; }
+            #page-content-wrapper { min-width: 0; width: 100%; }
+        }
+
         .content-card {
             border: none;
             border-radius: 12px;
@@ -233,8 +262,11 @@ $asset_count = count($assets);
             justify-content: space-between;
         }
 
-        /* Form Styling */
-        .form-label { font-weight: 600; font-size: 0.9rem; color: #5a5c69; }
+        .form-label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #5a5c69;
+        }
         .form-control, .form-select {
             border-radius: 8px;
             padding: 0.6rem 1rem;
@@ -245,7 +277,6 @@ $asset_count = count($assets);
             box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
         }
 
-        /* Table Styling */
         .table-custom { margin-bottom: 0; }
         .table-custom thead th {
             background-color: #f8f9fc;
@@ -265,16 +296,18 @@ $asset_count = count($assets);
         .sort-icon { font-size: 0.8rem; margin-left: 5px; color: #d1d3e2; }
         .sort-icon.active { color: var(--primary-color); }
 
-        /* Print Styles */
         @media print {
             .no-print { display: none !important; }
             body { background-color: #fff !important; }
             .content-card { box-shadow: none !important; border: 1px solid #ddd !important; }
             .table-custom thead th { background-color: #ddd !important; color: #000 !important; }
         }
-        
-        /* Badge Styles */
-        .badge-status { padding: 0.5em 0.8em; font-weight: 600; border-radius: 0.35rem; }
+
+        .badge-status {
+            padding: 0.5em 0.8em;
+            font-weight: 600;
+            border-radius: 0.35rem;
+        }
         .badge-avail { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); border: 1px solid rgba(28, 200, 138, 0.2); }
         .badge-use   { background-color: rgba(78, 115, 223, 0.1); color: var(--primary-color); border: 1px solid rgba(78, 115, 223, 0.2); }
         .badge-broke { background-color: rgba(231, 74, 59, 0.1); color: var(--danger-color); border: 1px solid rgba(231, 74, 59, 0.2); }
@@ -290,7 +323,7 @@ $asset_count = count($assets);
             <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
             <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
             <a href="inventory.php" class="active"><i class="bi bi-box-seam"></i> Inventory</a>
-            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
+            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a>
             <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
             <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
             <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
@@ -305,7 +338,7 @@ $asset_count = count($assets);
 
         <div class="container-fluid p-4">
             <h3 class="mb-4 text-dark fw-bold no-print">Hardware Assets</h3>
-            
+
             <?php echo $message; ?>
 
             <div class="content-card no-print">
@@ -314,7 +347,7 @@ $asset_count = count($assets);
                 </div>
                 <div class="card-body p-4">
                     <form method="POST" action="inventory.php">
-                        <input type="hidden" name="add_asset" value="1"> 
+                        <input type="hidden" name="add_asset" value="1">
                         <div class="row g-3">
                             <div class="col-md-3">
                                 <label for="fam_tag_number" class="form-label">Asset Tag / ID</label>
@@ -356,23 +389,23 @@ $asset_count = count($assets);
                     </form>
                 </div>
             </div>
-            
+
             <div class="content-card">
                 <div class="card-header no-print">
                     <span><i class="bi bi-list-check me-2"></i> Master List (<?php echo $asset_count; ?> Items)</span>
-                    
+
                     <div class="d-flex align-items-center">
                         <button class="btn btn-sm btn-outline-secondary me-3" onclick="window.print()">
                             <i class="bi bi-printer me-1"></i> Print / PDF
                         </button>
-                        
+
                         <form method="GET" action="inventory.php" class="d-flex" style="width: 280px;">
                             <div class="input-group input-group-sm">
-                                <input 
-                                    class="form-control" 
-                                    type="search" 
-                                    placeholder="Search assets..." 
-                                    aria-label="Search" 
+                                <input
+                                    class="form-control"
+                                    type="search"
+                                    placeholder="Search assets..."
+                                    aria-label="Search"
                                     name="search"
                                     value="<?php echo htmlspecialchars($search_term); ?>"
                                 >
@@ -392,7 +425,7 @@ $asset_count = count($assets);
                                 <tr>
                                     <th class="ps-4">
                                         Asset Tag
-                                        <?php 
+                                        <?php
                                             $new_order = ($sort_by == 'a.fam_tag_number' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
                                             $active = ($sort_by == 'a.fam_tag_number') ? 'active' : '';
                                             $icon = ($sort_by == 'a.fam_tag_number' && $sort_order == 'DESC') ? 'bi-sort-down' : 'bi-sort-up';
@@ -405,7 +438,7 @@ $asset_count = count($assets);
                                     <th>Model & Serial</th>
                                     <th>
                                         Received
-                                        <?php 
+                                        <?php
                                             $new_order = ($sort_by == 'a.date_received' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
                                             $active = ($sort_by == 'a.date_received') ? 'active' : '';
                                         ?>
@@ -413,18 +446,27 @@ $asset_count = count($assets);
                                             <i class="bi bi-arrow-down-up <?php echo $active; ?> sort-icon"></i>
                                         </a>
                                     </th>
-                                    <th>Status</th>
+                                    <th>
+                                        Status
+                                        <?php
+                                            $new_order = ($sort_by == 'a.status' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
+                                            $active = ($sort_by == 'a.status') ? 'active' : '';
+                                        ?>
+                                        <a href="inventory.php?sort_by=status&order=<?php echo $new_order; ?>" class="text-decoration-none no-print">
+                                            <i class="bi bi-arrow-down-up <?php echo $active; ?> sort-icon"></i>
+                                        </a>
+                                    </th>
                                     <th>Assigned To</th>
-                                    <th class="text-end pe-4 no-print">Actions</th> 
+                                    <th class="text-end pe-4 no-print">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if ($asset_count > 0): ?>
-                                    <?php foreach ($assets as $asset): 
-                                        $statusClass = 'badge-avail'; // Default Available
-                                        if ($asset['status'] == 'In Use') $statusClass = 'badge-use';
-                                        if ($asset['status'] == 'Broken') $statusClass = 'badge-broke';
-                                        if ($asset['status'] == 'Repairing') $statusClass = 'badge-fix';
+                                    <?php foreach ($assets as $asset):
+                                        $statusClass = 'badge-avail';
+                                        if ($asset['status'] === 'In Use') $statusClass = 'badge-use';
+                                        if ($asset['status'] === 'Broken') $statusClass = 'badge-broke';
+                                        if ($asset['status'] === 'Repairing') $statusClass = 'badge-fix';
                                     ?>
                                     <tr>
                                         <td class="ps-4 fw-bold text-dark"><?php echo htmlspecialchars($asset['fam_tag_number']); ?></td>
@@ -436,7 +478,7 @@ $asset_count = count($assets);
                                         <td class="text-secondary"><?php echo htmlspecialchars($asset['date_received'] ? date('M d, Y', strtotime($asset['date_received'])) : '-'); ?></td>
                                         <td><span class="badge-status <?php echo $statusClass; ?>"><?php echo htmlspecialchars($asset['status']); ?></span></td>
                                         <td>
-                                            <?php if($asset['current_user_name']): ?>
+                                            <?php if ($asset['current_user_name']): ?>
                                                 <i class="bi bi-person-fill text-secondary me-1"></i> <?php echo htmlspecialchars($asset['current_user_name']); ?>
                                             <?php else: ?>
                                                 <span class="text-muted small">Inventory</span>
@@ -444,7 +486,7 @@ $asset_count = count($assets);
                                         </td>
                                         <td class="text-end pe-4 no-print">
                                             <div class="btn-group btn-group-sm" role="group">
-                                                <button 
+                                                <button
                                                     class="btn btn-outline-warning"
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#editAssetModal"
@@ -459,9 +501,9 @@ $asset_count = count($assets);
                                                 >
                                                     <i class="bi bi-pencil-fill"></i>
                                                 </button>
-                                                
-                                                <?php if ($asset['status'] == 'Available'): ?>
-                                                <button 
+
+                                                <?php if ($asset['status'] === 'Available' && empty($asset['current_user_name'])): ?>
+                                                <button
                                                     class="btn btn-outline-danger"
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#deleteAssetModal"
@@ -472,7 +514,7 @@ $asset_count = count($assets);
                                                     <i class="bi bi-trash-fill"></i>
                                                 </button>
                                                 <?php else: ?>
-                                                <button class="btn btn-outline-secondary" disabled title="Must be Available to Delete">
+                                                <button class="btn btn-outline-secondary" disabled title="Only unassigned Available assets can be deleted">
                                                     <i class="bi bi-trash"></i>
                                                 </button>
                                                 <?php endif; ?>
@@ -537,7 +579,7 @@ $asset_count = count($assets);
                 <label for="edit_serial_number" class="form-label">Serial Number</label>
                 <input type="text" class="form-control" id="edit_serial_number" name="edit_serial_number" required>
             </div>
-             <div class="mb-3">
+            <div class="mb-3">
                 <label for="edit_date_received" class="form-label">Date Received</label>
                 <input type="date" class="form-control" id="edit_date_received" name="edit_date_received" required>
             </div>
@@ -545,11 +587,10 @@ $asset_count = count($assets);
                 <label for="edit_status" class="form-label">Status</label>
                 <select class="form-select" id="edit_status" name="edit_status" required>
                     <option value="Available">Available</option>
-                    <option value="In Use" disabled>In Use (Locked)</option>
                     <option value="Broken">Broken</option>
                     <option value="Repairing">Repairing</option>
                 </select>
-                <div class="form-text text-muted small"><i class="bi bi-info-circle"></i> 'In Use' status is managed via Transmittal logs.</div>
+                <div class="form-text text-muted small"><i class="bi bi-info-circle"></i> Assigned assets must be changed through Transmittal. This form is for unassigned inventory items.</div>
             </div>
         </div>
         <div class="modal-footer border-0">
@@ -564,15 +605,11 @@ $asset_count = count($assets);
 <div class="modal fade" id="deleteAssetModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
-      <div class="modal-header bg-danger text-white border-0">
-        <h5 class="modal-title fw-bold">Confirm Deletion</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
       <form method="POST" action="inventory.php">
         <div class="modal-body text-center p-4">
             <input type="hidden" name="delete_asset" value="1">
             <input type="hidden" name="delete_asset_id" id="delete_asset_id">
-            
+
             <i class="bi bi-exclamation-octagon text-danger display-3 mb-3"></i>
             <p class="mb-2">Permanently delete asset:</p>
             <h4 id="delete_fam_tag" class="fw-bold mb-3"></h4>
@@ -590,18 +627,15 @@ $asset_count = count($assets);
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-    // Sidebar Toggle
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
 
-    // Edit Modal Logic
     var editAssetModal = document.getElementById('editAssetModal');
     editAssetModal.addEventListener('show.bs.modal', function (event) {
-        var button = event.relatedTarget; 
-        
-        // Populate fields
+        var button = event.relatedTarget;
+
         editAssetModal.querySelector('#edit_asset_id').value = button.getAttribute('data-id');
         editAssetModal.querySelector('#edit_fam_tag_number').value = button.getAttribute('data-tag');
         editAssetModal.querySelector('#edit_device_type').value = button.getAttribute('data-type');
@@ -610,11 +644,10 @@ $asset_count = count($assets);
         editAssetModal.querySelector('#edit_date_received').value = button.getAttribute('data-date');
         editAssetModal.querySelector('#edit_status').value = button.getAttribute('data-status');
     });
-    
-    // Delete Modal Logic
+
     var deleteAssetModal = document.getElementById('deleteAssetModal');
     deleteAssetModal.addEventListener('show.bs.modal', function (event) {
-        var button = event.relatedTarget; 
+        var button = event.relatedTarget;
         deleteAssetModal.querySelector('#delete_asset_id').value = button.getAttribute('data-id');
         deleteAssetModal.querySelector('#delete_fam_tag').textContent = button.getAttribute('data-tag');
     });

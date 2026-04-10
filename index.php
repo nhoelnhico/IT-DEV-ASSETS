@@ -1,5 +1,4 @@
 <?php
-// 1. Include the database connection
 require_once 'includes/config.php';
 
 // Initialize variables
@@ -7,6 +6,7 @@ $total_employees = 0;
 $assets_in_use = 0;
 $assets_available = 0;
 $assets_broken = 0;
+$assets_repairing = 0;
 $transmittal_history = [];
 
 // Matches your SQL device_type values
@@ -17,17 +17,19 @@ $device_stats = array_fill_keys($device_types, 0);
 $asset_status_data = [
     'In Use' => 0,
     'Available' => 0,
-    'Broken' => 0
+    'Broken' => 0,
+    'Repairing' => 0
 ];
 
 try {
-    // 2. Fetch key metrics
+    // Fetch key metrics
     $total_employees = $pdo->query("SELECT COUNT(*) FROM employees")->fetchColumn();
     $assets_in_use = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'In Use'")->fetchColumn();
     $assets_available = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Available'")->fetchColumn();
     $assets_broken = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Broken'")->fetchColumn();
-    
-    // 3. Fetch Device Type counts
+    $assets_repairing = $pdo->query("SELECT COUNT(*) FROM assets WHERE status = 'Repairing'")->fetchColumn();
+
+    // Fetch Device Type counts
     $type_stmt = $pdo->query("SELECT device_type, COUNT(*) as count FROM assets GROUP BY device_type");
     $raw_types = $type_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
@@ -39,27 +41,25 @@ try {
         }
     }
 
-    // 4. Fetch recent transmittals
+    // Fetch recent transmittals
     $sql_history = "
         SELECT 
-            t.transmittal_date, t.transaction_type, 
+            t.transmittal_date, 
+            t.transaction_type, 
             a.fam_tag_number, 
-            ef.name AS from_name, et.name AS to_name
-        FROM 
-            transmittals t
-        JOIN 
-            assets a ON t.asset_id = a.asset_id
-        LEFT JOIN 
-            employees ef ON t.from_id = ef.employee_id
-        LEFT JOIN 
-            employees et ON t.to_id = et.employee_id
-        ORDER BY 
-            t.transmittal_date DESC LIMIT 5
+            ef.name AS from_name, 
+            et.name AS to_name
+        FROM transmittals t
+        JOIN assets a ON t.asset_id = a.asset_id
+        LEFT JOIN employees ef ON t.from_id = ef.employee_id
+        LEFT JOIN employees et ON t.to_id = et.employee_id
+        ORDER BY t.transmittal_date DESC
+        LIMIT 5
     ";
     $history_stmt = $pdo->query($sql_history);
     $transmittal_history = $history_stmt->fetchAll();
 
-    // 5. Fetch chart data
+    // Fetch chart data
     $chart_data_stmt = $pdo->query("SELECT status, COUNT(*) as count FROM assets GROUP BY status");
     $raw_chart_data = $chart_data_stmt->fetchAll();
 
@@ -70,10 +70,10 @@ try {
     }
 
 } catch (\PDOException $e) {
-    // Error handling
+    // Optional: log error
+    // error_log($e->getMessage());
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -90,6 +90,7 @@ try {
             --success-color: #1cc88a; 
             --danger-color: #e74a3b;  
             --info-color: #36b9cc;    
+            --warning-color: #f6c23e;
             --dark-sidebar: #2c3e50;
             --light-bg: #f3f4f6;
             --sidebar-width: 250px;
@@ -101,7 +102,7 @@ try {
             overflow-x: hidden;
         }
 
-        /* --- SIDEBAR FIXES --- */
+        /* Original sidebar style */
         #wrapper {
             display: flex;
             width: 100%;
@@ -141,39 +142,47 @@ try {
         .sidebar-nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
         .sidebar-nav a.active { background: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid var(--info-color); }
 
-        /* --- CONTENT FIXES --- */
         #page-content-wrapper {
             width: 100%;
             transition: all 0.3s;
         }
 
-        /* Mobile specific sidebar behavior */
         @media (max-width: 768px) {
             #sidebar-wrapper { margin-left: calc(-1 * var(--sidebar-width)); }
             #sidebar-wrapper.toggled { margin-left: 0; }
         }
 
-        /* Cards & Styling */
+        /* Original cards */
         .stat-card {
-            border: none; border-radius: 12px;
+            border: none; 
+            border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            background: #fff; position: relative;
+            background: #fff; 
+            position: relative;
         }
+
         .border-left-primary { border-left: 5px solid var(--primary-color); }
         .border-left-success { border-left: 5px solid var(--success-color); }
         .border-left-danger  { border-left: 5px solid var(--danger-color); }
         .border-left-info    { border-left: 5px solid var(--info-color); }
+        .border-left-warning { border-left: 5px solid var(--warning-color); }
 
         .text-xs { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #858796; }
         .h5-number { font-size: 1.5rem; font-weight: 700; color: #5a5c69; }
         
         .icon-box {
-            opacity: 0.15; position: absolute;
-            right: 15px; top: 15px; font-size: 2.5rem;
+            opacity: 0.15; 
+            position: absolute;
+            right: 15px; 
+            top: 15px; 
+            font-size: 2.5rem;
         }
 
         .mini-card {
-            background: #fff; border-radius: 10px; padding: 12px; text-align: center;
+            background: #fff; 
+            border-radius: 10px; 
+            padding: 12px; 
+            text-align: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
     </style>
@@ -204,32 +213,39 @@ try {
             <h4 class="mb-4 fw-bold text-dark">Executive Dashboard</h4>
 
             <div class="row g-4 mb-4">
-                <div class="col-md-3">
+                <div class="col-lg col-md-4 col-sm-6">
                     <div class="stat-card p-3 border-left-info">
                         <div class="text-xs">Employees</div>
                         <div class="h5-number"><?php echo $total_employees; ?></div>
                         <i class="bi bi-people-fill icon-box text-info"></i>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-lg col-md-4 col-sm-6">
                     <div class="stat-card p-3 border-left-primary">
                         <div class="text-xs">In Use</div>
                         <div class="h5-number"><?php echo $assets_in_use; ?></div>
                         <i class="bi bi-pc-display icon-box text-primary"></i>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-lg col-md-4 col-sm-6">
                     <div class="stat-card p-3 border-left-success">
                         <div class="text-xs">Available</div>
                         <div class="h5-number"><?php echo $assets_available; ?></div>
                         <i class="bi bi-check-circle-fill icon-box text-success"></i>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-lg col-md-4 col-sm-6">
                     <div class="stat-card p-3 border-left-danger">
                         <div class="text-xs">Broken</div>
                         <div class="h5-number"><?php echo $assets_broken; ?></div>
                         <i class="bi bi-exclamation-triangle-fill icon-box text-danger"></i>
+                    </div>
+                </div>
+                <div class="col-lg col-md-4 col-sm-6">
+                    <div class="stat-card p-3 border-left-warning">
+                        <div class="text-xs">Repairing</div>
+                        <div class="h5-number"><?php echo $assets_repairing; ?></div>
+                        <i class="bi bi-tools icon-box text-warning"></i>
                     </div>
                 </div>
             </div>
@@ -238,15 +254,18 @@ try {
                 <div class="col-12"><h6 class="text-uppercase small fw-bold text-muted">Inventory Breakdown</h6></div>
                 <?php 
                 $icons = [
-                    'Laptop' => 'bi-laptop', 'Desktop' => 'bi-pc-display',
-                    'Company Phone' => 'bi-phone', 'Monitor' => 'bi-display',
-                    'Tablet' => 'bi-tablet', 'Other' => 'bi-cpu'
+                    'Laptop' => 'bi-laptop', 
+                    'Desktop' => 'bi-pc-display',
+                    'Company Phone' => 'bi-phone', 
+                    'Monitor' => 'bi-display',
+                    'Tablet' => 'bi-tablet', 
+                    'Other' => 'bi-cpu'
                 ];
                 foreach($device_stats as $type => $count): 
                 ?>
                 <div class="col-6 col-md-2">
                     <div class="mini-card">
-                        <div class="small fw-bold text-muted"><?php echo $type; ?></div>
+                        <div class="small fw-bold text-muted"><?php echo htmlspecialchars($type); ?></div>
                         <div class="h5 mb-0 fw-bold"><?php echo $count; ?></div>
                         <i class="bi <?php echo $icons[$type] ?? 'bi-box'; ?> text-secondary opacity-50"></i>
                     </div>
@@ -283,24 +302,45 @@ try {
                                 <tbody>
                                     <?php foreach ($transmittal_history as $log): 
                                         $badge = 'bg-primary';
-                                        if($log['transaction_type'] == 'Return') $badge = 'bg-warning text-dark';
-                                        if($log['transaction_type'] == 'Repair') $badge = 'bg-danger';
+                                        $label = $log['transaction_type'];
+
+                                        if ($log['transaction_type'] == 'IN') {
+                                            $badge = 'bg-warning text-dark';
+                                            $label = 'Return';
+                                        }
+                                        if ($log['transaction_type'] == 'OUT') {
+                                            $badge = 'bg-primary';
+                                            $label = 'Issue';
+                                        }
+                                        if ($log['transaction_type'] == 'Repair') {
+                                            $badge = 'bg-danger';
+                                            $label = 'Repair';
+                                        }
                                     ?>
                                     <tr>
                                         <td class="ps-3 small"><?php echo date('M d', strtotime($log['transmittal_date'])); ?></td>
-                                        <td><span class="badge <?php echo $badge; ?>"><?php echo $log['transaction_type']; ?></span></td>
-                                        <td class="fw-bold"><?php echo $log['fam_tag_number']; ?></td>
-                                        <td class="small"><?php echo $log['to_name'] ?? $log['from_name'] ?? 'System'; ?></td>
+                                        <td><span class="badge <?php echo $badge; ?>"><?php echo $label; ?></span></td>
+                                        <td class="fw-bold"><?php echo htmlspecialchars($log['fam_tag_number']); ?></td>
+                                        <td class="small"><?php echo htmlspecialchars($log['to_name'] ?? $log['from_name'] ?? 'System'); ?></td>
                                     </tr>
                                     <?php endforeach; ?>
+
+                                    <?php if (empty($transmittal_history)): ?>
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted py-4">No recent activity found.</td>
+                                    </tr>
+                                    <?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 </div>
             </div>
-        </div> </div> </div> <script>
-    // FIXED TOGGLE SCRIPT
+        </div>
+    </div>
+</div>
+
+<script>
     document.getElementById("sidebarToggle").onclick = function() {
         document.getElementById("sidebar-wrapper").classList.toggle("toggled");
     };
@@ -309,20 +349,23 @@ try {
     new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: ['In Use', 'Available', 'Broken'],
+            labels: ['In Use', 'Available', 'Broken', 'Repairing'],
             datasets: [{
                 data: [
                     <?php echo $asset_status_data['In Use']; ?>, 
                     <?php echo $asset_status_data['Available']; ?>, 
-                    <?php echo $asset_status_data['Broken']; ?>
+                    <?php echo $asset_status_data['Broken']; ?>,
+                    <?php echo $asset_status_data['Repairing']; ?>
                 ],
-                backgroundColor: ['#4e73df', '#1cc88a', '#e74a3b'],
+                backgroundColor: ['#4e73df', '#1cc88a', '#e74a3b', '#f6c23e'],
                 borderWidth: 5
             }]
         },
         options: {
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
+            plugins: {
+                legend: { position: 'bottom' }
+            }
         }
     });
 </script>

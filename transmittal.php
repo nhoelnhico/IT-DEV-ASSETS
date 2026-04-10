@@ -4,15 +4,12 @@ require_once 'includes/config.php';
 $message = '';
 
 // --- 1. FETCH DROPDOWN DATA ---
-// Employees
 $emp_stmt = $pdo->query("SELECT employee_id, name FROM employees ORDER BY name ASC");
 $employees = $emp_stmt->fetchAll();
 
-// Assets - Fetch ALL assets but include status for filtering
 $asset_stmt = $pdo->query("SELECT asset_id, fam_tag_number, device_name, status, current_user_id FROM assets ORDER BY fam_tag_number ASC");
 $assets = $asset_stmt->fetchAll();
 
-// Prepare Assets Array for JavaScript
 $assets_json = [];
 foreach ($assets as $a) {
     $assets_json[] = [
@@ -24,124 +21,136 @@ foreach ($assets as $a) {
 }
 $assets_js_data = json_encode($assets_json);
 
-
 // --- 2. HANDLE FORM SUBMISSION ---
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['log_transaction'])) {
-    $form_type = $_POST['transaction_type']; // This is 'Issue', 'Return', or 'Repair'
-    $asset_id = $_POST['asset_id'];
-    $employee_id = !empty($_POST['employee_id']) ? $_POST['employee_id'] : null;
-    $remarks = $_POST['remarks'];
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['log_transaction'])) {
+    $form_type = trim($_POST['transaction_type'] ?? '');
+    $asset_id = filter_input(INPUT_POST, 'asset_id', FILTER_SANITIZE_NUMBER_INT);
+    $employee_id = !empty($_POST['employee_id']) ? filter_input(INPUT_POST, 'employee_id', FILTER_SANITIZE_NUMBER_INT) : null;
+    $remarks = trim(filter_input(INPUT_POST, 'remarks', FILTER_SANITIZE_SPECIAL_CHARS) ?? '');
     $date = date('Y-m-d H:i:s');
 
-    // MAP FORM VALUES TO DATABASE VALUES (IN/OUT)
-    // Issue = OUT (Item goes OUT to employee)
-    // Return = IN (Item comes IN to inventory)
-    // Repair = Repair (or OUT depending on your DB, keeping as Repair for now)
-    $db_transaction_type = $form_type; 
-    if ($form_type == 'Issue') $db_transaction_type = 'OUT';
-    if ($form_type == 'Return') $db_transaction_type = 'IN';
+    $db_transaction_type = $form_type;
+    if ($form_type === 'Issue') $db_transaction_type = 'OUT';
+    if ($form_type === 'Return') $db_transaction_type = 'IN';
+    if ($form_type === 'Repair') $db_transaction_type = 'Repair';
 
     if (empty($form_type) || empty($asset_id)) {
         $message = '<div class="alert alert-danger shadow-sm border-0">Transaction Type and Asset are required.</div>';
     } else {
-        $check_stmt = $pdo->prepare("SELECT status, current_user_id FROM assets WHERE asset_id = ?");
-        $check_stmt->execute([$asset_id]);
-        $current_asset = $check_stmt->fetch();
-
-        $valid_transaction = true;
-
         try {
-            $pdo->beginTransaction();
+            $check_stmt = $pdo->prepare("SELECT asset_id, status, current_user_id FROM assets WHERE asset_id = ?");
+            $check_stmt->execute([$asset_id]);
+            $current_asset = $check_stmt->fetch();
 
-            // LOGIC FOR ISSUING (OUT)
-            if ($form_type == 'Issue') {
-                if ($current_asset['status'] != 'Available') {
-                    $valid_transaction = false;
-                    $message = '<div class="alert alert-danger shadow-sm border-0">Error: Asset is not Available (Current Status: ' . $current_asset['status'] . ').</div>';
-                } elseif (empty($employee_id)) {
-                    $valid_transaction = false;
-                    $message = '<div class="alert alert-danger shadow-sm border-0">Error: Please select an Employee to assign this to.</div>';
-                } else {
-                    $update = $pdo->prepare("UPDATE assets SET status = 'In Use', current_user_id = ? WHERE asset_id = ?");
-                    $update->execute([$employee_id, $asset_id]);
-                    
-                    $log = $pdo->prepare("INSERT INTO transmittals (asset_id, to_id, transmittal_date, transaction_type, remarks) VALUES (?, ?, ?, ?, ?)");
-                    $log->execute([$asset_id, $employee_id, $date, $db_transaction_type, $remarks]);
-                }
-
-            // LOGIC FOR RETURNING (IN)
-            } elseif ($form_type == 'Return') {
-                if ($current_asset['status'] != 'In Use') {
-                    $valid_transaction = false;
-                    $message = '<div class="alert alert-danger shadow-sm border-0">Error: Asset is not currently In Use, so it cannot be returned.</div>';
-                } else {
-                    $prev_user_id = $current_asset['current_user_id'];
-                    $update = $pdo->prepare("UPDATE assets SET status = 'Available', current_user_id = NULL WHERE asset_id = ?");
-                    $update->execute([$asset_id]);
-
-                    $log = $pdo->prepare("INSERT INTO transmittals (asset_id, from_id, transmittal_date, transaction_type, remarks) VALUES (?, ?, ?, ?, ?)");
-                    $log->execute([$asset_id, $prev_user_id, $date, $db_transaction_type, $remarks]);
-                }
-
-            // LOGIC FOR REPAIR
-            } elseif ($form_type == 'Repair') {
-                $from_id = $current_asset['current_user_id'];
-                $update = $pdo->prepare("UPDATE assets SET status = 'Repairing', current_user_id = NULL WHERE asset_id = ?");
-                $update->execute([$asset_id]);
-
-                $log = $pdo->prepare("INSERT INTO transmittals (asset_id, from_id, transmittal_date, transaction_type, remarks) VALUES (?, ?, ?, ?, ?)");
-                $log->execute([$asset_id, $from_id, $date, 'Repair', $remarks]);
-            }
-
-            if ($valid_transaction) {
-                $pdo->commit();
-                $message = '<div class="alert alert-success shadow-sm border-0"><i class="bi bi-check-circle-fill me-2"></i> Transaction saved successfully.</div>';
-                
-                // Refresh assets array for JS
-                $asset_stmt = $pdo->query("SELECT asset_id, fam_tag_number, device_name, status, current_user_id FROM assets ORDER BY fam_tag_number ASC");
-                $assets_json = [];
-                foreach ($asset_stmt->fetchAll() as $a) {
-                    $assets_json[] = [
-                        'id' => $a['asset_id'],
-                        'text' => $a['fam_tag_number'] . ' - ' . $a['device_name'] . ' (' . $a['status'] . ')',
-                        'status' => $a['status'],
-                        'current_user_id' => $a['current_user_id']
-                    ];
-                }
-                $assets_js_data = json_encode($assets_json);
-
+            if (!$current_asset) {
+                $message = '<div class="alert alert-danger shadow-sm border-0">Asset not found.</div>';
             } else {
+                $valid_transaction = true;
+
+                $pdo->beginTransaction();
+
+                if ($form_type === 'Issue') {
+                    if ($current_asset['status'] !== 'Available') {
+                        $valid_transaction = false;
+                        $message = '<div class="alert alert-danger shadow-sm border-0">Error: Asset is not Available (Current Status: ' . htmlspecialchars($current_asset['status']) . ').</div>';
+                    } elseif (empty($employee_id)) {
+                        $valid_transaction = false;
+                        $message = '<div class="alert alert-danger shadow-sm border-0">Error: Please select an Employee to assign this to.</div>';
+                    } else {
+                        $update = $pdo->prepare("UPDATE assets SET status = 'In Use', current_user_id = ? WHERE asset_id = ?");
+                        $update->execute([$employee_id, $asset_id]);
+
+                        $log = $pdo->prepare("INSERT INTO transmittals (asset_id, from_id, to_id, transmittal_date, transaction_type, remarks) VALUES (?, ?, ?, ?, ?, ?)");
+                        $log->execute([$asset_id, 0, $employee_id, $date, $db_transaction_type, $remarks]);
+                    }
+                } elseif ($form_type === 'Return') {
+                    if ($current_asset['status'] !== 'In Use') {
+                        $valid_transaction = false;
+                        $message = '<div class="alert alert-danger shadow-sm border-0">Error: Asset is not currently In Use, so it cannot be returned.</div>';
+                    } else {
+                        $prev_user_id = $current_asset['current_user_id'] ?: 0;
+
+                        $update = $pdo->prepare("UPDATE assets SET status = 'Available', current_user_id = NULL WHERE asset_id = ?");
+                        $update->execute([$asset_id]);
+
+                        $log = $pdo->prepare("INSERT INTO transmittals (asset_id, from_id, to_id, transmittal_date, transaction_type, remarks) VALUES (?, ?, ?, ?, ?, ?)");
+                        $log->execute([$asset_id, $prev_user_id, 0, $date, $db_transaction_type, $remarks]);
+                    }
+                } elseif ($form_type === 'Repair') {
+                    if ($current_asset['status'] === 'Repairing') {
+                        $valid_transaction = false;
+                        $message = '<div class="alert alert-danger shadow-sm border-0">Error: Asset is already under repair.</div>';
+                    } elseif ($current_asset['status'] === 'Available') {
+                        $valid_transaction = false;
+                        $message = '<div class="alert alert-danger shadow-sm border-0">Error: Please mark the item as Broken first in Inventory before sending it to repair.</div>';
+                    } elseif ($current_asset['status'] !== 'In Use' && $current_asset['status'] !== 'Broken') {
+                        $valid_transaction = false;
+                        $message = '<div class="alert alert-danger shadow-sm border-0">Error: Only In Use or Broken assets can be sent for repair.</div>';
+                    } else {
+                        $from_id = $current_asset['current_user_id'] ?: 0;
+
+                        $update = $pdo->prepare("UPDATE assets SET status = 'Repairing', current_user_id = NULL WHERE asset_id = ?");
+                        $update->execute([$asset_id]);
+
+                        $log = $pdo->prepare("INSERT INTO transmittals (asset_id, from_id, to_id, transmittal_date, transaction_type, remarks) VALUES (?, ?, ?, ?, ?, ?)");
+                        $log->execute([$asset_id, $from_id, 0, $date, $db_transaction_type, $remarks]);
+                    }
+                } else {
+                    $valid_transaction = false;
+                    $message = '<div class="alert alert-danger shadow-sm border-0">Invalid transaction type.</div>';
+                }
+
+                if ($valid_transaction) {
+                    $pdo->commit();
+                    $message = '<div class="alert alert-success shadow-sm border-0"><i class="bi bi-check-circle-fill me-2"></i> Transaction saved successfully.</div>';
+
+                    $asset_stmt = $pdo->query("SELECT asset_id, fam_tag_number, device_name, status, current_user_id FROM assets ORDER BY fam_tag_number ASC");
+                    $assets_json = [];
+                    foreach ($asset_stmt->fetchAll() as $a) {
+                        $assets_json[] = [
+                            'id' => $a['asset_id'],
+                            'text' => $a['fam_tag_number'] . ' - ' . $a['device_name'] . ' (' . $a['status'] . ')',
+                            'status' => $a['status'],
+                            'current_user_id' => $a['current_user_id']
+                        ];
+                    }
+                    $assets_js_data = json_encode($assets_json);
+                } else {
+                    $pdo->rollBack();
+                }
+            }
+        } catch (\PDOException $e) {
+            if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-
-        } catch (\PDOException $e) {
-            $pdo->rollBack();
-            $message = '<div class="alert alert-danger shadow-sm border-0">Database Error: ' . $e->getMessage() . '</div>';
+            $message = '<div class="alert alert-danger shadow-sm border-0">Database Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
         }
     }
 }
 
 // --- 3. FETCH HISTORY ---
 $history_sql = "
-    SELECT 
-        t.transmittal_date, t.transaction_type, t.remarks,
-        a.fam_tag_number, a.device_name,
-        e_from.name as from_name,
-        e_to.name as to_name
-    FROM 
+    SELECT
+        t.transmittal_date,
+        t.transaction_type,
+        t.remarks,
+        a.fam_tag_number,
+        a.device_name,
+        e_from.name AS from_name,
+        e_to.name AS to_name
+    FROM
         transmittals t
-    JOIN 
+    JOIN
         assets a ON t.asset_id = a.asset_id
-    LEFT JOIN 
+    LEFT JOIN
         employees e_from ON t.from_id = e_from.employee_id
-    LEFT JOIN 
+    LEFT JOIN
         employees e_to ON t.to_id = e_to.employee_id
-    ORDER BY 
+    ORDER BY
         t.transmittal_date DESC
 ";
 $history = $pdo->query($history_sql)->fetchAll();
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -219,7 +228,7 @@ $history = $pdo->query($history_sql)->fetchAll();
         }
 
         .form-label { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; color: #858796; }
-        
+
         .table-custom { margin-bottom: 0; }
         .table-custom thead th {
             background-color: #f8f9fc;
@@ -235,12 +244,11 @@ $history = $pdo->query($history_sql)->fetchAll();
             vertical-align: middle;
             border-bottom: 1px solid #e3e6f0;
         }
-        
+
         .badge-type { padding: 0.5em 0.8em; border-radius: 0.35rem; font-weight: 600; min-width: 80px; display: inline-block; text-align: center; }
         .type-issue { background-color: rgba(78, 115, 223, 0.1); color: var(--primary-color); border: 1px solid rgba(78, 115, 223, 0.2); }
         .type-return { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); border: 1px solid rgba(28, 200, 138, 0.2); }
         .type-repair { background-color: rgba(231, 74, 59, 0.1); color: var(--danger-color); border: 1px solid rgba(231, 74, 59, 0.2); }
-
     </style>
 </head>
 <body>
@@ -252,7 +260,7 @@ $history = $pdo->query($history_sql)->fetchAll();
             <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
             <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
             <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
-            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
+            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a>
             <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
             <a href="transmittal.php" class="active"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
             <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
@@ -267,7 +275,7 @@ $history = $pdo->query($history_sql)->fetchAll();
 
         <div class="container-fluid p-4">
             <h3 class="mb-4 text-dark fw-bold">Transmittal Log</h3>
-            
+
             <?php echo $message; ?>
 
             <div class="content-card">
@@ -277,7 +285,7 @@ $history = $pdo->query($history_sql)->fetchAll();
                 <div class="card-body p-4">
                     <form method="POST" action="transmittal.php">
                         <input type="hidden" name="log_transaction" value="1">
-                        
+
                         <div class="row g-4">
                             <div class="col-md-3">
                                 <label class="form-label">Action Type</label>
@@ -293,7 +301,7 @@ $history = $pdo->query($history_sql)->fetchAll();
                                 <label class="form-label">Select Asset</label>
                                 <select class="form-select select2" name="asset_id" id="asset_id" required>
                                     <option value="">Select Action Type First...</option>
-                                    </select>
+                                </select>
                             </div>
 
                             <div class="col-md-4" id="employee_field_container">
@@ -306,10 +314,10 @@ $history = $pdo->query($history_sql)->fetchAll();
                                 </select>
                                 <div class="form-text text-muted small mt-1" id="emp_help_text">Select action type to see instructions.</div>
                             </div>
-                            
+
                             <div class="col-12">
                                 <label class="form-label">Remarks / Notes</label>
-                                <textarea class="form-control" name="remarks" rows="2" placeholder="e.g. Issued for new project, Screen cracked, etc."></textarea>
+                                <textarea class="form-control" name="remarks" rows="2" placeholder="e.g. Issued for new project, Screen cracked, sent to vendor, etc."></textarea>
                             </div>
                         </div>
 
@@ -340,20 +348,17 @@ $history = $pdo->query($history_sql)->fetchAll();
                             </thead>
                             <tbody>
                                 <?php if (count($history) > 0): ?>
-                                    <?php foreach ($history as $row): 
-                                        // LOGIC TO MAP DATABASE VALUES (IN/OUT) BACK TO READABLE TEXT
+                                    <?php foreach ($history as $row):
                                         $display_type = $row['transaction_type'];
                                         $typeClass = 'type-issue';
-                                        
-                                        if ($row['transaction_type'] == 'OUT') {
+
+                                        if ($row['transaction_type'] === 'OUT') {
                                             $display_type = 'Issue';
                                             $typeClass = 'type-issue';
-                                        } 
-                                        elseif ($row['transaction_type'] == 'IN') {
+                                        } elseif ($row['transaction_type'] === 'IN') {
                                             $display_type = 'Return';
                                             $typeClass = 'type-return';
-                                        }
-                                        elseif ($row['transaction_type'] == 'Repair') {
+                                        } elseif ($row['transaction_type'] === 'Repair') {
                                             $display_type = 'Repair';
                                             $typeClass = 'type-repair';
                                         }
@@ -366,11 +371,11 @@ $history = $pdo->query($history_sql)->fetchAll();
                                             <div class="small text-muted"><?php echo htmlspecialchars($row['device_name']); ?></div>
                                         </td>
                                         <td>
-                                            <?php if ($display_type == 'Issue'): ?>
-                                                <span class="text-muted small">To:</span> <span class="fw-semibold text-dark"><?php echo htmlspecialchars($row['to_name']); ?></span>
-                                            <?php elseif ($display_type == 'Return'): ?>
-                                                <span class="text-muted small">From:</span> <span class="fw-semibold text-dark"><?php echo htmlspecialchars($row['from_name']); ?></span>
-                                            <?php elseif ($display_type == 'Repair'): ?>
+                                            <?php if ($display_type === 'Issue'): ?>
+                                                <span class="text-muted small">To:</span> <span class="fw-semibold text-dark"><?php echo htmlspecialchars($row['to_name'] ?? 'N/A'); ?></span>
+                                            <?php elseif ($display_type === 'Return'): ?>
+                                                <span class="text-muted small">From:</span> <span class="fw-semibold text-dark"><?php echo htmlspecialchars($row['from_name'] ?? 'N/A'); ?></span>
+                                            <?php elseif ($display_type === 'Repair'): ?>
                                                 <span class="text-muted small">From:</span> <span class="fw-semibold text-dark"><?php echo $row['from_name'] ? htmlspecialchars($row['from_name']) : 'Inventory'; ?></span>
                                             <?php endif; ?>
                                         </td>
@@ -397,27 +402,22 @@ $history = $pdo->query($history_sql)->fetchAll();
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
-    // --- 1. Pass PHP Asset Data to JavaScript ---
     const allAssets = <?php echo $assets_js_data; ?>;
 
-    // Sidebar Toggle
     document.getElementById("sidebarToggle").addEventListener("click", function() {
         var wrapper = document.getElementById("wrapper");
         wrapper.classList.toggle("toggled");
     });
 
-    // Initialize Select2
     $(document).ready(function() {
         $('.select2').select2({
             theme: "bootstrap-5",
             width: '100%'
         });
 
-        // Trigger logic on load to reset fields
-        updateAssetDropdown(); 
+        updateAssetDropdown();
     });
 
-    // --- 2. Dynamic Filtering Logic ---
     $('#transaction_type').on('change', function() {
         updateAssetDropdown();
     });
@@ -428,7 +428,6 @@ $history = $pdo->query($history_sql)->fetchAll();
         const employeeSelect = $('#employee_id');
         const helpText = document.getElementById('emp_help_text');
 
-        // Clear current asset options
         assetSelect.empty();
 
         if (!type) {
@@ -439,19 +438,15 @@ $history = $pdo->query($history_sql)->fetchAll();
 
         assetSelect.append(new Option('Select Asset...', ''));
 
-        // Filter assets based on type
         allAssets.forEach(asset => {
             let addOption = false;
 
             if (type === 'Issue') {
-                // Show ONLY Available assets
                 if (asset.status === 'Available') addOption = true;
             } else if (type === 'Return') {
-                // Show ONLY In Use assets
                 if (asset.status === 'In Use') addOption = true;
             } else if (type === 'Repair') {
-                // Show Available AND In Use assets
-                if (asset.status === 'In Use' || asset.status === 'Available') addOption = true;
+                if (asset.status === 'In Use' || asset.status === 'Broken') addOption = true;
             }
 
             if (addOption) {
@@ -459,10 +454,8 @@ $history = $pdo->query($history_sql)->fetchAll();
             }
         });
 
-        // Refresh Select2 for Assets
         assetSelect.trigger('change');
 
-        // Employee Field Logic
         if (type === 'Issue') {
             employeeSelect.prop('disabled', false);
             employeeSelect.val(null).trigger('change');
@@ -470,11 +463,11 @@ $history = $pdo->query($history_sql)->fetchAll();
         } else if (type === 'Return') {
             employeeSelect.prop('disabled', true);
             employeeSelect.val(null).trigger('change');
-            helpText.textContent = "Auto-detected from asset assignment.";
-        } else {
+            helpText.textContent = "Auto-detected from current assignment.";
+        } else if (type === 'Repair') {
             employeeSelect.prop('disabled', true);
             employeeSelect.val(null).trigger('change');
-            helpText.textContent = "Not applicable for Repairs.";
+            helpText.textContent = "Not required. Asset must currently be In Use or Broken.";
         }
     }
 </script>
