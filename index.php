@@ -184,6 +184,12 @@ try {
             padding: 12px; 
             text-align: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .mini-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
     </style>
 </head>
@@ -264,11 +270,13 @@ try {
                 foreach($device_stats as $type => $count): 
                 ?>
                 <div class="col-6 col-md-2">
-                    <div class="mini-card">
-                        <div class="small fw-bold text-muted"><?php echo htmlspecialchars($type); ?></div>
-                        <div class="h5 mb-0 fw-bold"><?php echo $count; ?></div>
-                        <i class="bi <?php echo $icons[$type] ?? 'bi-box'; ?> text-secondary opacity-50"></i>
-                    </div>
+                    <a href="inventory.php?search=<?php echo urlencode($type); ?>" class="text-decoration-none text-dark">
+                        <div class="mini-card">
+                            <div class="small fw-bold text-muted"><?php echo htmlspecialchars($type); ?></div>
+                            <div class="h5 mb-0 fw-bold"><?php echo $count; ?></div>
+                            <i class="bi <?php echo $icons[$type] ?? 'bi-box'; ?> text-secondary opacity-50"></i>
+                        </div>
+                    </a>
                 </div>
                 <?php endforeach; ?>
             </div>
