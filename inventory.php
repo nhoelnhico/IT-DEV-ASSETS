@@ -277,8 +277,15 @@ $asset_count = count($assets);
             box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
         }
 
+        /* SCROLLABLE TABLE & STICKY HEADERS CSS */
+        .table-wrapper {
+            max-height: 550px;
+            overflow-y: auto;
+        }
         .table-custom { margin-bottom: 0; }
         .table-custom thead th {
+            position: sticky;
+            top: 0;
             background-color: #f8f9fc;
             color: #858796;
             font-size: 0.85rem;
@@ -286,6 +293,8 @@ $asset_count = count($assets);
             font-weight: 700;
             border-top: none;
             padding: 1rem;
+            z-index: 10;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
         }
         .table-custom tbody td {
             padding: 1rem;
@@ -296,11 +305,15 @@ $asset_count = count($assets);
         .sort-icon { font-size: 0.8rem; margin-left: 5px; color: #d1d3e2; }
         .sort-icon.active { color: var(--primary-color); }
 
+        /* Filter inputs sizing */
+        .col-search { font-size: 0.8rem; font-weight: normal; text-transform: none; }
+
         @media print {
             .no-print { display: none !important; }
             body { background-color: #fff !important; }
             .content-card { box-shadow: none !important; border: 1px solid #ddd !important; }
-            .table-custom thead th { background-color: #ddd !important; color: #000 !important; }
+            .table-wrapper { max-height: none !important; overflow: visible !important; }
+            .table-custom thead th { position: static !important; background-color: #ddd !important; color: #000 !important; box-shadow: none; }
         }
 
         .badge-status {
@@ -404,6 +417,7 @@ $asset_count = count($assets);
                                 <input
                                     class="form-control"
                                     type="search"
+                                    id="globalSearch"
                                     placeholder="Search assets..."
                                     aria-label="Search"
                                     name="search"
@@ -419,44 +433,62 @@ $asset_count = count($assets);
                 </div>
 
                 <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-custom table-hover align-middle">
+                    <div class="table-responsive table-wrapper">
+                        <table class="table table-custom table-hover align-middle" id="inventoryTable">
                             <thead>
                                 <tr>
-                                    <th class="ps-4">
+                                    <th class="ps-4" style="min-width: 150px;">
                                         Asset Tag
                                         <?php
                                             $new_order = ($sort_by == 'a.fam_tag_number' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
                                             $active = ($sort_by == 'a.fam_tag_number') ? 'active' : '';
                                             $icon = ($sort_by == 'a.fam_tag_number' && $sort_order == 'DESC') ? 'bi-sort-down' : 'bi-sort-up';
                                         ?>
-                                        <a href="inventory.php?sort_by=tag&order=<?php echo $new_order; ?>" class="text-decoration-none no-print">
+                                        <a href="inventory.php?sort_by=tag&order=<?php echo $new_order; ?>" class="text-decoration-none no-print float-end">
                                             <i class="bi <?php echo $icon . ' ' . $active; ?> sort-icon"></i>
                                         </a>
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search no-print" data-col="0" placeholder="Filter tag...">
                                     </th>
-                                    <th>Type</th>
-                                    <th>Model & Serial</th>
-                                    <th>
+                                    <th style="min-width: 150px;">
+                                        Type
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search no-print" data-col="1" placeholder="Filter type...">
+                                    </th>
+                                    <th style="min-width: 200px;">
+                                        Model & Serial
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search no-print" data-col="2" placeholder="Filter model/serial...">
+                                    </th>
+                                    <th style="min-width: 150px;">
                                         Received
                                         <?php
                                             $new_order = ($sort_by == 'a.date_received' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
                                             $active = ($sort_by == 'a.date_received') ? 'active' : '';
                                         ?>
-                                        <a href="inventory.php?sort_by=date_received&order=<?php echo $new_order; ?>" class="text-decoration-none no-print">
+                                        <a href="inventory.php?sort_by=date_received&order=<?php echo $new_order; ?>" class="text-decoration-none no-print float-end">
                                             <i class="bi bi-arrow-down-up <?php echo $active; ?> sort-icon"></i>
                                         </a>
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search no-print" data-col="3" placeholder="Filter date...">
                                     </th>
-                                    <th>
+                                    <th style="min-width: 150px;">
                                         Status
                                         <?php
                                             $new_order = ($sort_by == 'a.status' && $sort_order == 'ASC') ? 'DESC' : 'ASC';
                                             $active = ($sort_by == 'a.status') ? 'active' : '';
                                         ?>
-                                        <a href="inventory.php?sort_by=status&order=<?php echo $new_order; ?>" class="text-decoration-none no-print">
+                                        <a href="inventory.php?sort_by=status&order=<?php echo $new_order; ?>" class="text-decoration-none no-print float-end">
                                             <i class="bi bi-arrow-down-up <?php echo $active; ?> sort-icon"></i>
                                         </a>
+                                        <select class="form-select form-select-sm mt-1 col-search no-print" data-col="4">
+                                            <option value="">All Statuses</option>
+                                            <option value="Available">Available</option>
+                                            <option value="In Use">In Use</option>
+                                            <option value="Broken">Broken</option>
+                                            <option value="Repairing">Repairing</option>
+                                        </select>
                                     </th>
-                                    <th>Assigned To</th>
+                                    <th style="min-width: 150px;">
+                                        Assigned To
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search no-print" data-col="5" placeholder="Filter assigned...">
+                                    </th>
                                     <th class="text-end pe-4 no-print">Actions</th>
                                 </tr>
                             </thead>
@@ -523,7 +555,7 @@ $asset_count = count($assets);
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr>
+                                    <tr id="noDataRow">
                                         <td colspan="7" class="text-center py-5 text-muted">
                                             <i class="bi bi-box-seam display-4 d-block mb-3 opacity-25"></i>
                                             <?php if (!empty($search_term)): ?>
@@ -624,6 +656,7 @@ $asset_count = count($assets);
   </div>
 </div>
 
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
@@ -650,6 +683,47 @@ $asset_count = count($assets);
         var button = event.relatedTarget;
         deleteAssetModal.querySelector('#delete_asset_id').value = button.getAttribute('data-id');
         deleteAssetModal.querySelector('#delete_fam_tag').textContent = button.getAttribute('data-tag');
+    });
+
+    // --- CLIENT SIDE FILTERING LOGIC ---
+    $(document).ready(function() {
+        function filterTable() {
+            // We read the global search field to allow JS to filter it instantly before form submission
+            const globalVal = $('#globalSearch').val().toLowerCase();
+
+            $('#inventoryTable tbody tr').each(function() {
+                const row = $(this);
+                if (row.attr('id') === 'noDataRow') return;
+
+                const rowText = row.text().toLowerCase();
+                let showRow = true;
+
+                // Global search check
+                if (globalVal !== '' && rowText.indexOf(globalVal) === -1) {
+                    showRow = false;
+                }
+
+                // Column search checks
+                if (showRow) {
+                    $('.col-search').each(function() {
+                        const colIdx = $(this).data('col');
+                        const filterVal = $(this).val().toLowerCase();
+                        
+                        if (filterVal !== '') {
+                            const cellText = row.find('td').eq(colIdx).text().toLowerCase();
+                            if (cellText.indexOf(filterVal) === -1) {
+                                showRow = false;
+                            }
+                        }
+                    });
+                }
+
+                row.toggle(showRow);
+            });
+        }
+
+        $('#globalSearch').on('keyup', filterTable);
+        $('.col-search').on('keyup change', filterTable);
     });
 </script>
 
