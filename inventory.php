@@ -451,7 +451,15 @@ $asset_count = count($assets);
                                     </th>
                                     <th style="min-width: 150px;">
                                         Type
-                                        <input type="text" class="form-control form-control-sm mt-1 col-search no-print" data-col="1" placeholder="Filter type...">
+                                        <select class="form-select form-select-sm mt-1 col-search no-print" data-col="1">
+                                            <option value="">All Types</option>
+                                            <option value="Desktop">Desktop</option>
+                                            <option value="Laptop">Laptop</option>
+                                            <option value="Monitor">Monitor</option>
+                                            <option value="Company Phone">Company Phone</option>
+                                            <option value="Tablet">Tablet</option>
+                                            <option value="Other">Other</option>
+                                        </select>
                                     </th>
                                     <th style="min-width: 200px;">
                                         Model & Serial
