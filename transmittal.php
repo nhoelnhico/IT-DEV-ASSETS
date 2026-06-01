@@ -229,8 +229,16 @@ $history = $pdo->query($history_sql)->fetchAll();
 
         .form-label { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; color: #858796; }
 
+        /* SCROLLABLE TABLE CSS */
+        .table-wrapper {
+            max-height: 500px;
+            overflow-y: auto;
+        }
         .table-custom { margin-bottom: 0; }
+        /* Sticky Header */
         .table-custom thead th {
+            position: sticky;
+            top: 0;
             background-color: #f8f9fc;
             color: #858796;
             font-size: 0.85rem;
@@ -238,6 +246,8 @@ $history = $pdo->query($history_sql)->fetchAll();
             font-weight: 700;
             border-top: none;
             padding: 1rem;
+            z-index: 10;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow for scrolling effect */
         }
         .table-custom tbody td {
             padding: 1rem;
@@ -249,6 +259,9 @@ $history = $pdo->query($history_sql)->fetchAll();
         .type-issue { background-color: rgba(78, 115, 223, 0.1); color: var(--primary-color); border: 1px solid rgba(78, 115, 223, 0.2); }
         .type-return { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); border: 1px solid rgba(28, 200, 138, 0.2); }
         .type-repair { background-color: rgba(231, 74, 59, 0.1); color: var(--danger-color); border: 1px solid rgba(231, 74, 59, 0.2); }
+        
+        /* Filter inputs sizing */
+        .col-search { font-size: 0.8rem; font-weight: normal; text-transform: none; }
     </style>
 </head>
 <body>
@@ -331,19 +344,43 @@ $history = $pdo->query($history_sql)->fetchAll();
             </div>
 
             <div class="content-card">
-                <div class="card-header">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <span><i class="bi bi-clock-history me-2"></i> Movement History</span>
+                    <div class="input-group input-group-sm" style="width: 250px;">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" id="globalSearch" class="form-control border-start-0" placeholder="Search history...">
+                    </div>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-custom table-hover align-middle">
+                    <div class="table-responsive table-wrapper">
+                        <table class="table table-custom table-hover align-middle" id="historyTable">
                             <thead>
                                 <tr>
-                                    <th class="ps-4">Date</th>
-                                    <th>Type</th>
-                                    <th>Asset Details</th>
-                                    <th>Involved Parties</th>
-                                    <th>Remarks</th>
+                                    <th class="ps-4" style="min-width: 150px;">
+                                        Date
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search" data-col="0" placeholder="Filter date...">
+                                    </th>
+                                    <th style="min-width: 140px;">
+                                        Type
+                                        <select class="form-select form-select-sm mt-1 col-search" data-col="1">
+                                            <option value="">All</option>
+                                            <option value="Issue">Issue</option>
+                                            <option value="Return">Return</option>
+                                            <option value="Repair">Repair</option>
+                                        </select>
+                                    </th>
+                                    <th style="min-width: 200px;">
+                                        Asset Details
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search" data-col="2" placeholder="Filter asset...">
+                                    </th>
+                                    <th style="min-width: 200px;">
+                                        Involved Parties
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search" data-col="3" placeholder="Filter parties...">
+                                    </th>
+                                    <th style="min-width: 200px;">
+                                        Remarks
+                                        <input type="text" class="form-control form-control-sm mt-1 col-search" data-col="4" placeholder="Filter remarks...">
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -383,7 +420,7 @@ $history = $pdo->query($history_sql)->fetchAll();
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr>
+                                    <tr id="noDataRow">
                                         <td colspan="5" class="text-center py-5 text-muted">No transactions recorded yet.</td>
                                     </tr>
                                 <?php endif; ?>
@@ -416,6 +453,46 @@ $history = $pdo->query($history_sql)->fetchAll();
         });
 
         updateAssetDropdown();
+
+        // --- FILTERING LOGIC ---
+        function filterTable() {
+            const globalVal = $('#globalSearch').val().toLowerCase();
+
+            $('#historyTable tbody tr').each(function() {
+                const row = $(this);
+                // Skip the "No data" placeholder row if it exists
+                if (row.attr('id') === 'noDataRow') return;
+
+                const rowText = row.text().toLowerCase();
+                let showRow = true;
+
+                // 1. Global Search Check
+                if (globalVal !== '' && rowText.indexOf(globalVal) === -1) {
+                    showRow = false;
+                }
+
+                // 2. Column Search Check (only if global search passed)
+                if (showRow) {
+                    $('.col-search').each(function() {
+                        const colIdx = $(this).data('col');
+                        const filterVal = $(this).val().toLowerCase();
+                        
+                        if (filterVal !== '') {
+                            const cellText = row.find('td').eq(colIdx).text().toLowerCase();
+                            if (cellText.indexOf(filterVal) === -1) {
+                                showRow = false;
+                            }
+                        }
+                    });
+                }
+
+                row.toggle(showRow);
+            });
+        }
+
+        // Attach event listeners for filtering
+        $('#globalSearch').on('keyup', filterTable);
+        $('.col-search').on('keyup change', filterTable);
     });
 
     $('#transaction_type').on('change', function() {
