@@ -111,9 +111,15 @@
                     io.unobserve(entry.target);
                 }
             });
-        }, { threshold: 0.08, rootMargin: "0px 0px -40px 0px" });
+        }, { threshold: 0, rootMargin: "0px 0px -10px 0px" });
 
         items.forEach(function (el) { io.observe(el); });
+
+        // Safety net: a card taller than the viewport may never reach an
+        // intersection threshold, so make sure nothing stays hidden.
+        setTimeout(function () {
+            items.forEach(function (el) { el.classList.add("in"); });
+        }, 1600);
     }
 
     /* ---------- Animated counters ---------- */

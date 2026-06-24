@@ -11,6 +11,6 @@ $extra_scripts = isset($extra_scripts) ? $extra_scripts : '';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <?php echo $extra_scripts; ?>
-<script src="assets/js/app.js"></script>
+<script src="assets/js/app.js?v=<?php echo @filemtime(__DIR__ . '/../assets/js/app.js') ?: '1'; ?>"></script>
 </body>
 </html>

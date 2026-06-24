@@ -190,7 +190,7 @@ include 'includes/sidebar.php';
                 </div>
 
                 <div class="card-body p-0">
-                    <div class="table-responsive">
+                    <div class="table-responsive table-wrapper">
                         <table class="table table-custom table-hover">
                             <thead>
                                 <tr>
