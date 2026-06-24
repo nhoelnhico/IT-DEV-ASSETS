@@ -150,148 +150,22 @@ $history_sql = "
         t.transmittal_date DESC
 ";
 $history = $pdo->query($history_sql)->fetchAll();
+
+$page_title   = 'IT Inventory | Transmittals';
+$active_page  = 'transmittal';
+$topbar_label = 'Asset Movement Log';
+$extra_head   = '<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />'
+              . '<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />';
+include 'includes/head.php';
+include 'includes/sidebar.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Inventory | Transmittals</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
-
-    <style>
-        :root {
-            --primary-color: #4e73df;
-            --success-color: #1cc88a;
-            --info-color: #36b9cc;
-            --warning-color: #f6c23e;
-            --danger-color: #e74a3b;
-            --dark-sidebar: #2c3e50;
-            --light-bg: #f3f4f6;
-            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        body {
-            background-color: var(--light-bg);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #5a5c69;
-        }
-
-        #sidebar-wrapper {
-            min-height: 100vh;
-            margin-left: -15rem;
-            transition: margin .25s ease-out;
-            background-color: var(--dark-sidebar);
-            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
-        }
-        #sidebar-wrapper .sidebar-heading {
-            padding: 1.5rem 1.25rem;
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: #ecf0f1;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .sidebar-nav a {
-            color: #bdc3c7;
-            padding: 1rem 1.25rem;
-            display: flex;
-            align-items: center;
-            text-decoration: none;
-            transition: all 0.3s;
-            border-left: 4px solid transparent;
-        }
-        .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
-        .sidebar-nav a:hover { background-color: rgba(255,255,255,0.05); color: #fff; }
-        .sidebar-nav a.active { background-color: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid var(--info-color); }
-        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-
-        .content-card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: var(--card-shadow);
-            background: white;
-            overflow: hidden;
-            margin-bottom: 2rem;
-        }
-        .content-card .card-header {
-            background: white;
-            border-bottom: 1px solid #e3e6f0;
-            padding: 1.25rem 1.5rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .form-label { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; color: #858796; }
-
-        /* SCROLLABLE TABLE CSS */
-        .table-wrapper {
-            max-height: 500px;
-            overflow-y: auto;
-        }
-        .table-custom { margin-bottom: 0; }
-        /* Sticky Header */
-        .table-custom thead th {
-            position: sticky;
-            top: 0;
-            background-color: #f8f9fc;
-            color: #858796;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            font-weight: 700;
-            border-top: none;
-            padding: 1rem;
-            z-index: 10;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow for scrolling effect */
-        }
-        .table-custom tbody td {
-            padding: 1rem;
-            vertical-align: middle;
-            border-bottom: 1px solid #e3e6f0;
-        }
-
-        .badge-type { padding: 0.5em 0.8em; border-radius: 0.35rem; font-weight: 600; min-width: 80px; display: inline-block; text-align: center; }
-        .type-issue { background-color: rgba(78, 115, 223, 0.1); color: var(--primary-color); border: 1px solid rgba(78, 115, 223, 0.2); }
-        .type-return { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); border: 1px solid rgba(28, 200, 138, 0.2); }
-        .type-repair { background-color: rgba(231, 74, 59, 0.1); color: var(--danger-color); border: 1px solid rgba(231, 74, 59, 0.2); }
-        
-        /* Filter inputs sizing */
-        .col-search { font-size: 0.8rem; font-weight: normal; text-transform: none; }
-    </style>
-</head>
-<body>
-
-<div class="d-flex" id="wrapper">
-    <div id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Asset Manager</div>
-        <div class="list-group list-group-flush sidebar-nav">
-            <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
-            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
-            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
-            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a>
-            <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
-            <a href="transmittal.php" class="active"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
-            <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
-        </div>
-    </div>
-
-    <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3">
-            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
-            <div class="ms-auto text-secondary small fw-bold">Asset Movement Log</div>
-        </nav>
 
         <div class="container-fluid p-4">
-            <h3 class="mb-4 text-dark fw-bold">Transmittal Log</h3>
+            <h3 class="mb-4 fw-bold">Transmittal Log</h3>
 
             <?php echo $message; ?>
 
-            <div class="content-card">
+            <div class="content-card reveal">
                 <div class="card-header border-left-primary">
                     <span><i class="bi bi-pen-fill me-2"></i> Log New Transaction</span>
                 </div>
@@ -343,12 +217,12 @@ $history = $pdo->query($history_sql)->fetchAll();
                 </div>
             </div>
 
-            <div class="content-card">
+            <div class="content-card reveal">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span><i class="bi bi-clock-history me-2"></i> Movement History</span>
                     <div class="input-group input-group-sm" style="width: 250px;">
-                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
-                        <input type="text" id="globalSearch" class="form-control border-start-0" placeholder="Search history...">
+                        <span class="input-group-text"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" id="globalSearch" class="form-control" placeholder="Search history...">
                     </div>
                 </div>
                 <div class="card-body p-0">
@@ -431,20 +305,13 @@ $history = $pdo->query($history_sql)->fetchAll();
             </div>
 
         </div>
-    </div>
-</div>
 
+<?php
+$extra_scripts = <<<'HTML'
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-
 <script>
-    const allAssets = <?php echo $assets_js_data; ?>;
-
-    document.getElementById("sidebarToggle").addEventListener("click", function() {
-        var wrapper = document.getElementById("wrapper");
-        wrapper.classList.toggle("toggled");
-    });
+    const allAssets = ALL_ASSETS_JSON;
 
     $(document).ready(function() {
         $('.select2').select2({
@@ -454,29 +321,25 @@ $history = $pdo->query($history_sql)->fetchAll();
 
         updateAssetDropdown();
 
-        // --- FILTERING LOGIC ---
         function filterTable() {
             const globalVal = $('#globalSearch').val().toLowerCase();
 
             $('#historyTable tbody tr').each(function() {
                 const row = $(this);
-                // Skip the "No data" placeholder row if it exists
                 if (row.attr('id') === 'noDataRow') return;
 
                 const rowText = row.text().toLowerCase();
                 let showRow = true;
 
-                // 1. Global Search Check
                 if (globalVal !== '' && rowText.indexOf(globalVal) === -1) {
                     showRow = false;
                 }
 
-                // 2. Column Search Check (only if global search passed)
                 if (showRow) {
                     $('.col-search').each(function() {
                         const colIdx = $(this).data('col');
                         const filterVal = $(this).val().toLowerCase();
-                        
+
                         if (filterVal !== '') {
                             const cellText = row.find('td').eq(colIdx).text().toLowerCase();
                             if (cellText.indexOf(filterVal) === -1) {
@@ -490,7 +353,6 @@ $history = $pdo->query($history_sql)->fetchAll();
             });
         }
 
-        // Attach event listeners for filtering
         $('#globalSearch').on('keyup', filterTable);
         $('.col-search').on('keyup change', filterTable);
     });
@@ -548,6 +410,7 @@ $history = $pdo->query($history_sql)->fetchAll();
         }
     }
 </script>
-
-</body>
-</html>
+HTML;
+$extra_scripts = str_replace('ALL_ASSETS_JSON', $assets_js_data, $extra_scripts);
+include 'includes/footer.php';
+?>

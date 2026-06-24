@@ -177,184 +177,20 @@ $stmt_fetch = $pdo->prepare($sql_fetch);
 $stmt_fetch->execute($search_params);
 $assets = $stmt_fetch->fetchAll();
 $asset_count = count($assets);
+
+$page_title   = 'IT Inventory | Inventory';
+$active_page  = 'inventory';
+$topbar_label = 'Hardware Inventory';
+include 'includes/head.php';
+include 'includes/sidebar.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Inventory | Inventory</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <style>
-        :root {
-            --primary-color: #4e73df;
-            --success-color: #1cc88a;
-            --info-color: #36b9cc;
-            --warning-color: #f6c23e;
-            --danger-color: #e74a3b;
-            --dark-sidebar: #2c3e50;
-            --light-bg: #f3f4f6;
-            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        body {
-            background-color: var(--light-bg);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #5a5c69;
-        }
-
-        #sidebar-wrapper {
-            min-height: 100vh;
-            margin-left: -15rem;
-            transition: margin .25s ease-out;
-            background-color: var(--dark-sidebar);
-            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
-        }
-        #sidebar-wrapper .sidebar-heading {
-            padding: 1.5rem 1.25rem;
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: #ecf0f1;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .sidebar-nav a {
-            color: #bdc3c7;
-            padding: 1rem 1.25rem;
-            display: flex;
-            align-items: center;
-            text-decoration: none;
-            transition: all 0.3s;
-            border-left: 4px solid transparent;
-        }
-        .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
-        .sidebar-nav a:hover {
-            background-color: rgba(255,255,255,0.05);
-            color: #fff;
-        }
-        .sidebar-nav a.active {
-            background-color: rgba(255,255,255,0.1);
-            color: #fff;
-            border-left: 4px solid var(--info-color);
-        }
-        #page-content-wrapper { min-width: 100vw; }
-        @media (min-width: 768px) {
-            #sidebar-wrapper { margin-left: 0; }
-            #page-content-wrapper { min-width: 0; width: 100%; }
-        }
-
-        .content-card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: var(--card-shadow);
-            background: white;
-            overflow: hidden;
-            margin-bottom: 2rem;
-        }
-        .content-card .card-header {
-            background: white;
-            border-bottom: 1px solid #e3e6f0;
-            padding: 1.25rem 1.5rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .form-label {
-            font-weight: 600;
-            font-size: 0.9rem;
-            color: #5a5c69;
-        }
-        .form-control, .form-select {
-            border-radius: 8px;
-            padding: 0.6rem 1rem;
-            border: 1px solid #d1d3e2;
-        }
-        .form-control:focus, .form-select:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
-        }
-
-        /* SCROLLABLE TABLE & STICKY HEADERS CSS */
-        .table-wrapper {
-            max-height: 550px;
-            overflow-y: auto;
-        }
-        .table-custom { margin-bottom: 0; }
-        .table-custom thead th {
-            position: sticky;
-            top: 0;
-            background-color: #f8f9fc;
-            color: #858796;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            font-weight: 700;
-            border-top: none;
-            padding: 1rem;
-            z-index: 10;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        }
-        .table-custom tbody td {
-            padding: 1rem;
-            vertical-align: middle;
-            border-bottom: 1px solid #e3e6f0;
-        }
-        .table-custom tbody tr:hover { background-color: #f8f9fc; }
-        .sort-icon { font-size: 0.8rem; margin-left: 5px; color: #d1d3e2; }
-        .sort-icon.active { color: var(--primary-color); }
-
-        /* Filter inputs sizing */
-        .col-search { font-size: 0.8rem; font-weight: normal; text-transform: none; }
-
-        @media print {
-            .no-print { display: none !important; }
-            body { background-color: #fff !important; }
-            .content-card { box-shadow: none !important; border: 1px solid #ddd !important; }
-            .table-wrapper { max-height: none !important; overflow: visible !important; }
-            .table-custom thead th { position: static !important; background-color: #ddd !important; color: #000 !important; box-shadow: none; }
-        }
-
-        .badge-status {
-            padding: 0.5em 0.8em;
-            font-weight: 600;
-            border-radius: 0.35rem;
-        }
-        .badge-avail { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); border: 1px solid rgba(28, 200, 138, 0.2); }
-        .badge-use   { background-color: rgba(78, 115, 223, 0.1); color: var(--primary-color); border: 1px solid rgba(78, 115, 223, 0.2); }
-        .badge-broke { background-color: rgba(231, 74, 59, 0.1); color: var(--danger-color); border: 1px solid rgba(231, 74, 59, 0.2); }
-        .badge-fix   { background-color: rgba(246, 194, 62, 0.1); color: #dda20a; border: 1px solid rgba(246, 194, 62, 0.2); }
-    </style>
-</head>
-<body>
-
-<div class="d-flex" id="wrapper">
-    <div class="border-end bg-dark no-print" id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Asset Manager</div>
-        <div class="list-group list-group-flush sidebar-nav">
-            <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
-            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
-            <a href="inventory.php" class="active"><i class="bi bi-box-seam"></i> Inventory</a>
-            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a>
-            <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
-            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
-            <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
-        </div>
-    </div>
-
-    <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3 no-print">
-            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
-            <div class="ms-auto text-secondary small fw-bold">Hardware Inventory</div>
-        </nav>
 
         <div class="container-fluid p-4">
-            <h3 class="mb-4 text-dark fw-bold no-print">Hardware Assets</h3>
+            <h3 class="mb-4 fw-bold no-print">Hardware Assets</h3>
 
             <?php echo $message; ?>
 
-            <div class="content-card no-print">
+            <div class="content-card no-print reveal">
                 <div class="card-header">
                     <span><i class="bi bi-plus-circle-fill me-2"></i> Register New Device</span>
                 </div>
@@ -365,7 +201,7 @@ $asset_count = count($assets);
                             <div class="col-md-3">
                                 <label for="fam_tag_number" class="form-label">Asset Tag / ID</label>
                                 <div class="input-group">
-                                    <span class="input-group-text bg-light text-muted"><i class="bi bi-tag"></i></span>
+                                    <span class="input-group-text"><i class="bi bi-tag"></i></span>
                                     <input type="text" class="form-control" id="fam_tag_number" name="fam_tag_number" placeholder="e.g. FAM-001" required>
                                 </div>
                             </div>
@@ -403,7 +239,7 @@ $asset_count = count($assets);
                 </div>
             </div>
 
-            <div class="content-card">
+            <div class="content-card reveal">
                 <div class="card-header no-print">
                     <span><i class="bi bi-list-check me-2"></i> Master List (<?php echo $asset_count; ?> Items)</span>
 
@@ -581,8 +417,6 @@ $asset_count = count($assets);
             </div>
 
         </div>
-    </div>
-</div>
 
 <div class="modal fade" id="editAssetModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -664,15 +498,10 @@ $asset_count = count($assets);
   </div>
 </div>
 
+<?php
+$extra_scripts = <<<'HTML'
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
-    document.getElementById("sidebarToggle").addEventListener("click", function() {
-        var wrapper = document.getElementById("wrapper");
-        wrapper.classList.toggle("toggled");
-    });
-
     var editAssetModal = document.getElementById('editAssetModal');
     editAssetModal.addEventListener('show.bs.modal', function (event) {
         var button = event.relatedTarget;
@@ -696,7 +525,6 @@ $asset_count = count($assets);
     // --- CLIENT SIDE FILTERING LOGIC ---
     $(document).ready(function() {
         function filterTable() {
-            // We read the global search field to allow JS to filter it instantly before form submission
             const globalVal = $('#globalSearch').val().toLowerCase();
 
             $('#inventoryTable tbody tr').each(function() {
@@ -706,17 +534,15 @@ $asset_count = count($assets);
                 const rowText = row.text().toLowerCase();
                 let showRow = true;
 
-                // Global search check
                 if (globalVal !== '' && rowText.indexOf(globalVal) === -1) {
                     showRow = false;
                 }
 
-                // Column search checks
                 if (showRow) {
                     $('.col-search').each(function() {
                         const colIdx = $(this).data('col');
                         const filterVal = $(this).val().toLowerCase();
-                        
+
                         if (filterVal !== '') {
                             const cellText = row.find('td').eq(colIdx).text().toLowerCase();
                             if (cellText.indexOf(filterVal) === -1) {
@@ -734,6 +560,6 @@ $asset_count = count($assets);
         $('.col-search').on('keyup change', filterTable);
     });
 </script>
-
-</body>
-</html>
+HTML;
+include 'includes/footer.php';
+?>

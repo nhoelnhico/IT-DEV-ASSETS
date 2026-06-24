@@ -33,7 +33,7 @@ if (!empty($employee_id)) {
             $stmt_assets = $pdo->prepare("SELECT fam_tag_number, device_type, device_name, serial_number, status FROM assets WHERE current_user_id = ? ORDER BY device_type");
             $stmt_assets->execute([$employee_id]);
             $assigned_assets = $stmt_assets->fetchAll();
-            
+
             // 3. Software
             $stmt_soft = $pdo->prepare("SELECT s.name, s.version, s.license_type, sa.license_key FROM software_assignments sa JOIN software_items s ON sa.software_id = s.software_id WHERE sa.employee_id = ? AND sa.status = 'Active'");
             $stmt_soft->execute([$employee_id]);
@@ -45,122 +45,28 @@ if (!empty($employee_id)) {
 }
 
 $total_items = count($assigned_assets) + count($assigned_software);
+
+$page_title   = 'Clearance Form | ' . ($employee_data ? htmlspecialchars($employee_data['name']) : 'Select Employee');
+$active_page  = 'clearance';
+$topbar_label = 'Generate Clearance';
+$extra_head   = '<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />'
+              . '<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />'
+              . '<style>
+                    @media print {
+                        @page { margin: 0.5cm; size: A4 portrait; }
+                        .container-fluid { padding: 0 !important; margin: 0 !important; }
+                        .paper-sheet { padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 0 !important; }
+                        .btn, form { display: none !important; }
+                    }
+                </style>';
+include 'includes/head.php';
+include 'includes/sidebar.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clearance Form | <?php echo $employee_data ? htmlspecialchars($employee_data['name']) : 'Select Employee'; ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
-
-    <style>
-        :root {
-            --primary-color: #4e73df;
-            --dark-sidebar: #2c3e50;
-            --light-bg: #f3f4f6;
-        }
-
-        body {
-            background-color: var(--light-bg);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #5a5c69;
-        }
-
-        /* SCREEN ONLY STYLES */
-        @media screen {
-            #sidebar-wrapper {
-                min-height: 100vh;
-                margin-left: -15rem;
-                transition: margin .25s ease-out;
-                background-color: var(--dark-sidebar);
-            }
-            #sidebar-wrapper .sidebar-heading {
-                padding: 1.5rem 1.25rem;
-                font-size: 1.4rem;
-                font-weight: bold;
-                color: #ecf0f1;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            .sidebar-nav a {
-                color: #bdc3c7;
-                padding: 1rem 1.25rem;
-                display: flex;
-                align-items: center;
-                text-decoration: none;
-                transition: all 0.3s;
-                border-left: 4px solid transparent;
-            }
-            .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
-            .sidebar-nav a:hover { background-color: rgba(255,255,255,0.05); color: #fff; }
-            .sidebar-nav a.active { background-color: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid #36b9cc; }
-            
-            @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-
-            .paper-sheet {
-                background: white;
-                box-shadow: 0 0 15px rgba(0,0,0,0.1);
-                padding: 40px;
-                min-height: 800px;
-                max-width: 210mm; /* A4 width */
-                margin: 0 auto;
-                position: relative;
-            }
-        }
-
-        /* PRINT STYLES - CRITICAL FOR CLEARANCE FORM */
-        @media print {
-            @page { margin: 0.5cm; size: A4 portrait; }
-            body { background: white; -webkit-print-color-adjust: exact; }
-            #sidebar-wrapper, .navbar, .no-print { display: none !important; }
-            .container-fluid { padding: 0 !important; margin: 0 !important; }
-            .paper-sheet {
-                box-shadow: none;
-                padding: 0;
-                margin: 0;
-                width: 100%;
-                max-width: 100%;
-            }
-            .btn, form { display: none; }
-            .card { border: none !important; }
-            .bg-dark { background-color: #000 !important; color: white !important; }
-        }
-
-        /* Common Table Styles for the Form */
-        .form-table th { background-color: #eee !important; color: #000; text-transform: uppercase; font-size: 0.8rem; }
-        .form-table td { font-size: 0.9rem; }
-        .signature-line { border-top: 1px solid #000; width: 80%; margin: 40px auto 5px auto; }
-    </style>
-</head>
-<body>
-
-<div class="d-flex" id="wrapper">
-    <div id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Asset Manager</div>
-        <div class="list-group list-group-flush sidebar-nav">
-            <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
-            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
-            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
-            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
-            <a href="software_assignment.php"><i class="bi bi-key"></i> Licenses</a>
-            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
-            <a href="employee_clearance.php" class="active"><i class="bi bi-file-earmark-check"></i> Clearance</a>
-        </div>
-    </div>
-
-    <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3 no-print">
-            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
-            <div class="ms-auto text-secondary small fw-bold">Generate Clearance</div>
-        </nav>
 
         <div class="container-fluid p-4">
-            
-            <div class="card shadow-sm mb-4 border-0 no-print">
-                <div class="card-body bg-white rounded">
+
+            <div class="content-card mb-4 no-print reveal">
+                <div class="card-body p-4">
                     <form method="POST" action="employee_clearance.php" class="row align-items-end g-3">
                         <input type="hidden" name="select_employee" value="1">
                         <div class="col-md-6">
@@ -289,20 +195,16 @@ $total_items = count($assigned_assets) + count($assigned_software);
             <?php endif; ?>
 
         </div>
-    </div>
-</div>
 
+<?php
+$extra_scripts = <<<'HTML'
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
-    document.getElementById("sidebarToggle").addEventListener("click", function() {
-        var wrapper = document.getElementById("wrapper");
-        wrapper.classList.toggle("toggled");
-    });
     $(document).ready(function() {
         $('.select2').select2({ theme: "bootstrap-5", width: '100%' });
     });
 </script>
-</body>
-</html>
+HTML;
+include 'includes/footer.php';
+?>

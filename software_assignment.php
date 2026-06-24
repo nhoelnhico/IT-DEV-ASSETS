@@ -1,7 +1,7 @@
 <?php
 require_once 'includes/config.php';
 
-$message = ''; 
+$message = '';
 $search_term = '';
 $search_condition = " WHERE sa.status = 'Active' "; // Default to showing Active only? Or all? Let's show Active by default or all with status.
 // Let's show ALL but order by Active first
@@ -40,7 +40,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_license'])) {
 // --- 3. HANDLE REVOKE (UPDATE STATUS) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['revoke_license'])) {
     $assignment_id = filter_input(INPUT_POST, 'revoke_assignment_id', FILTER_SANITIZE_NUMBER_INT);
-    
+
     try {
         // We don't delete, we set to 'Inactive' so we keep the history
         $sql = "UPDATE software_assignments SET status = 'Inactive' WHERE assignment_id = ?";
@@ -63,190 +63,47 @@ $software_list = $soft_stmt->fetchAll();
 
 // --- 5. FETCH ASSIGNMENTS LIST ---
 $sql_fetch = "
-    SELECT 
+    SELECT
         sa.assignment_id, sa.license_key, sa.date_assigned, sa.status,
         e.name AS employee_name, e.department,
         s.name AS software_name, s.version
-    FROM 
+    FROM
         software_assignments sa
-    JOIN 
+    JOIN
         employees e ON sa.employee_id = e.employee_id
-    JOIN 
+    JOIN
         software_items s ON sa.software_id = s.software_id
     {$search_condition}
-    ORDER BY 
+    ORDER BY
         sa.status ASC, sa.date_assigned DESC
 ";
 $stmt = $pdo->prepare($sql_fetch);
 $stmt->execute($search_params);
 $assignments = $stmt->fetchAll();
 $count = count($assignments);
+
+$page_title   = 'IT Inventory | License Assignment';
+$active_page  = 'licenses';
+$topbar_label = 'License Management';
+$extra_head   = '<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />'
+              . '<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />';
+include 'includes/head.php';
+include 'includes/sidebar.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Inventory | License Assignment</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
-
-    <style>
-        :root {
-            --primary-color: #4e73df;
-            --success-color: #1cc88a;
-            --info-color: #36b9cc;
-            --warning-color: #f6c23e;
-            --danger-color: #e74a3b;
-            --dark-sidebar: #2c3e50;
-            --light-bg: #f3f4f6;
-            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        body {
-            background-color: var(--light-bg);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #5a5c69;
-        }
-
-        /* Sidebar & Layout */
-        #sidebar-wrapper {
-            min-height: 100vh;
-            margin-left: -15rem;
-            transition: margin .25s ease-out;
-            background-color: var(--dark-sidebar);
-            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
-        }
-        #sidebar-wrapper .sidebar-heading {
-            padding: 1.5rem 1.25rem;
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: #ecf0f1;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .sidebar-nav a {
-            color: #bdc3c7;
-            padding: 1rem 1.25rem;
-            display: flex;
-            align-items: center;
-            text-decoration: none;
-            transition: all 0.3s;
-            border-left: 4px solid transparent;
-        }
-        .sidebar-nav a i { margin-right: 10px; font-size: 1.1rem; }
-        .sidebar-nav a:hover { background-color: rgba(255,255,255,0.05); color: #fff; }
-        .sidebar-nav a.active { background-color: rgba(255,255,255,0.1); color: #fff; border-left: 4px solid var(--info-color); }
-        @media (min-width: 768px) { #sidebar-wrapper { margin-left: 0; } #page-content-wrapper { min-width: 0; width: 100%; } }
-
-        /* Card Styles */
-        .content-card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: var(--card-shadow);
-            background: white;
-            overflow: hidden;
-            margin-bottom: 2rem;
-        }
-        .content-card .card-header {
-            background: white;
-            border-bottom: 1px solid #e3e6f0;
-            padding: 1.25rem 1.5rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        /* Table Styles */
-        .table-custom { margin-bottom: 0; }
-        .table-custom thead th {
-            background-color: #f8f9fc;
-            color: #858796;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            font-weight: 700;
-            border-top: none;
-            padding: 1rem;
-        }
-        .table-custom tbody td {
-            padding: 1rem;
-            vertical-align: middle;
-            border-bottom: 1px solid #e3e6f0;
-        }
-        .table-custom tbody tr:hover { background-color: #f8f9fc; }
-
-        /* Avatar */
-        .avatar-circle {
-            width: 35px;
-            height: 35px;
-            background-color: var(--primary-color);
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 0.8rem;
-            margin-right: 12px;
-        }
-
-        /* License Key Code Style */
-        .license-key-box {
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #f8f9fc;
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: 1px solid #e3e6f0;
-            color: #e74a3b;
-            font-size: 0.9rem;
-            font-weight: 600;
-        }
-
-        /* Status Badges */
-        .badge-active { background-color: rgba(28, 200, 138, 0.1); color: var(--success-color); padding: 0.5em 0.8em; border-radius: 0.35rem; }
-        .badge-inactive { background-color: rgba(133, 135, 150, 0.1); color: #858796; padding: 0.5em 0.8em; border-radius: 0.35rem; }
-
-    </style>
-</head>
-<body>
-
-<div class="d-flex" id="wrapper">
-    <div id="sidebar-wrapper">
-        <div class="sidebar-heading">IT Asset Manager</div>
-        <div class="list-group list-group-flush sidebar-nav">
-            <a href="index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
-            <a href="employees.php"><i class="bi bi-people"></i> Employees</a>
-            <a href="inventory.php"><i class="bi bi-box-seam"></i> Inventory</a>
-            <a href="software_inventory.php"><i class="bi bi-disc"></i> Software</a> 
-            <a href="software_assignment.php" class="active"><i class="bi bi-key"></i> Licenses</a>
-            <a href="transmittal.php"><i class="bi bi-arrow-left-right"></i> Transmittals</a>
-            <a href="employee_clearance.php"><i class="bi bi-file-earmark-check"></i> Clearance</a>
-        </div>
-    </div>
-
-    <div id="page-content-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm px-4 py-3">
-            <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle"><i class="bi bi-list"></i> Menu</button>
-            <div class="ms-auto text-secondary small fw-bold">License Management</div>
-        </nav>
-
         <div class="container-fluid p-4">
-            <h3 class="mb-4 text-dark fw-bold">License Assignments</h3>
-            
+            <h3 class="mb-4 fw-bold">License Assignments</h3>
+
             <?php echo $message; ?>
 
-            <div class="content-card">
+            <div class="content-card reveal">
                 <div class="card-header">
                     <span><i class="bi bi-person-fill-add me-2"></i> Grant License Access</span>
                 </div>
                 <div class="card-body p-4">
                     <form method="POST" action="software_assignment.php">
                         <input type="hidden" name="assign_license" value="1">
-                        
+
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label fw-bold small text-muted text-uppercase">Select Employee</label>
@@ -263,7 +120,7 @@ $count = count($assignments);
                                     <option value="">Search Software...</option>
                                     <?php foreach ($software_list as $soft): ?>
                                         <option value="<?php echo $soft['software_id']; ?>">
-                                            <?php echo htmlspecialchars($soft['name']); ?> 
+                                            <?php echo htmlspecialchars($soft['name']); ?>
                                             <?php echo $soft['version'] ? '(' . htmlspecialchars($soft['version']) . ')' : ''; ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -285,17 +142,17 @@ $count = count($assignments);
                 </div>
             </div>
 
-            <div class="content-card">
+            <div class="content-card reveal">
                 <div class="card-header">
                     <span><i class="bi bi-list-columns-reverse me-2"></i> Allocation Registry (<?php echo $count; ?>)</span>
-                    
+
                     <form method="GET" action="software_assignment.php" class="d-flex" style="width: 280px;">
                         <div class="input-group input-group-sm">
-                            <input 
-                                class="form-control" 
-                                type="search" 
-                                placeholder="Search Employee, Software..." 
-                                aria-label="Search" 
+                            <input
+                                class="form-control"
+                                type="search"
+                                placeholder="Search Employee, Software..."
+                                aria-label="Search"
                                 name="search"
                                 value="<?php echo htmlspecialchars($search_term); ?>"
                             >
@@ -321,15 +178,15 @@ $count = count($assignments);
                             </thead>
                             <tbody>
                                 <?php if ($count > 0): ?>
-                                    <?php foreach ($assignments as $row): 
+                                    <?php foreach ($assignments as $row):
                                         $initials = strtoupper(substr($row['employee_name'], 0, 1));
                                         $is_active = $row['status'] === 'Active';
                                         $status_badge = $is_active ? 'badge-active' : 'badge-inactive';
                                     ?>
-                                    <tr class="<?php echo !$is_active ? 'bg-light opacity-75' : ''; ?>">
+                                    <tr class="<?php echo !$is_active ? 'opacity-75' : ''; ?>">
                                         <td class="ps-4">
                                             <div class="d-flex align-items-center">
-                                                <div class="avatar-circle shadow-sm" style="<?php echo !$is_active ? 'background-color:#858796;' : ''; ?>">
+                                                <div class="avatar-circle shadow-sm" style="<?php echo !$is_active ? 'background:#858796;' : ''; ?>">
                                                     <?php echo $initials; ?>
                                                 </div>
                                                 <div>
@@ -357,7 +214,7 @@ $count = count($assignments);
                                         </td>
                                         <td class="text-end pe-4">
                                             <?php if ($is_active): ?>
-                                            <button 
+                                            <button
                                                 class="btn btn-sm btn-outline-danger"
                                                 data-bs-toggle="modal"
                                                 data-bs-target="#revokeModal"
@@ -392,8 +249,6 @@ $count = count($assignments);
                 </div>
             </div>
         </div>
-    </div>
-</div>
 
 <div class="modal fade" id="revokeModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm">
@@ -406,12 +261,12 @@ $count = count($assignments);
         <div class="modal-body p-4 text-center">
             <input type="hidden" name="revoke_license" value="1">
             <input type="hidden" id="revoke_assignment_id" name="revoke_assignment_id">
-            
+
             <i class="bi bi-person-dash-fill text-danger display-4 mb-3"></i>
             <p class="mb-2">Revoke license for:</p>
             <h5 class="fw-bold" id="revoke_soft_name"></h5>
             <p class="mb-3">from <strong id="revoke_emp_name"></strong>?</p>
-            
+
             <div class="alert alert-light border small text-muted text-start">
                 <i class="bi bi-info-circle me-1"></i> This will mark the license as 'Inactive' and free it up for reassignment. History is preserved.
             </div>
@@ -425,18 +280,11 @@ $count = count($assignments);
   </div>
 </div>
 
+<?php
+$extra_scripts = <<<'HTML'
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-
 <script>
-    // Sidebar Toggle
-    document.getElementById("sidebarToggle").addEventListener("click", function() {
-        var wrapper = document.getElementById("wrapper");
-        wrapper.classList.toggle("toggled");
-    });
-
-    // Initialize Select2 for searchable dropdowns
     $(document).ready(function() {
         $('.select2').select2({
             theme: "bootstrap-5",
@@ -444,16 +292,14 @@ $count = count($assignments);
         });
     });
 
-    // Revoke Modal Logic
     var revokeModal = document.getElementById('revokeModal');
     revokeModal.addEventListener('show.bs.modal', function (event) {
-        var button = event.relatedTarget; 
-        
+        var button = event.relatedTarget;
         revokeModal.querySelector('#revoke_assignment_id').value = button.getAttribute('data-id');
         revokeModal.querySelector('#revoke_emp_name').textContent = button.getAttribute('data-name');
         revokeModal.querySelector('#revoke_soft_name').textContent = button.getAttribute('data-soft');
     });
 </script>
-
-</body>
-</html>
+HTML;
+include 'includes/footer.php';
+?>
