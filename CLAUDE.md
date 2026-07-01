@@ -18,7 +18,19 @@ Database setup — **two files must both be applied**, in order:
 1. Import `it_inventory_assets.sql` (creates `assets`, `employees`, `transmittals` + seed data).
 2. Run `adding sql.sql` — it `ALTER`s the enums the dump is missing: `assets.status` needs `'Repairing'` and `transmittals.transaction_type` needs `'Repair'`. Without this, transmittal repairs and asset repair status fail.
 
-    DB credentials live in `includes/config.php` (defaults: host `localhost`, db `it_inventory_assets`, user `root`, empty password).d
+DB credentials live in `includes/config.php` (defaults: host `localhost`, db `it_inventory_assets`, user `root`, empty password).
+
+### Database changes require a migration file (required)
+
+Production runs on a separate **on-premise main PC**. Schema changes reach it by hand-pasting SQL — there is no automated sync. So whenever you add or reconfigure the database (new/altered/dropped table or column, changed enum, new index, etc.):
+
+1. Apply the change to **this** dev PC first and confirm the app works against it.
+2. **After** it works, write a migration file under `migrations/` capturing exactly that change so it can be pasted and run on the main PC.
+   - Name it `migrations/YYYY-MM-DD_short_description.sql` (e.g. `2026-07-01_add_os_version_mac_address_to_assets.sql`).
+   - Begin with a comment header: what it does, the date, and that it runs *after* the base schema on the on-prem DB.
+   - Use plain, portable incremental `ALTER TABLE` / `CREATE TABLE` statements (MySQL/MariaDB, XAMPP) — one migration per logical change, ordered as it must run.
+3. Do **not** rely on editing `it_inventory_assets.sql` alone — that dump is only the first-time import; the on-prem DB already holds live data and can only take incremental statements. Ship the migration together with the PHP code that depends on it.
+
 ## Architecture
 
 **Page pattern.** Every user-facing feature is a single self-contained `.php` file at the repo root. Each file has the same shape:
