@@ -11,9 +11,9 @@ $sort_order = 'ASC';
 // --- 1. HANDLE SEARCH QUERY ---
 if (isset($_GET['search']) && !empty($_GET['search'])) {
     $search_term = trim(filter_input(INPUT_GET, 'search', FILTER_SANITIZE_SPECIAL_CHARS));
-    $search_condition = " WHERE a.fam_tag_number LIKE ? OR a.serial_number LIKE ? OR a.device_type LIKE ? OR a.device_name LIKE ?";
+    $search_condition = " WHERE a.fam_tag_number LIKE ? OR a.serial_number LIKE ? OR a.device_type LIKE ? OR a.device_name LIKE ? OR a.mac_address LIKE ? OR a.os_version LIKE ?";
     $like_term = '%' . $search_term . '%';
-    $search_params = [$like_term, $like_term, $like_term, $like_term];
+    $search_params = [$like_term, $like_term, $like_term, $like_term, $like_term, $like_term];
 }
 
 // --- 2. HANDLE SORTING PARAMETERS ---
@@ -42,6 +42,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['add_asset'])) {
     $device_type = trim(filter_input(INPUT_POST, 'device_type', FILTER_SANITIZE_SPECIAL_CHARS));
     $device_name = trim(filter_input(INPUT_POST, 'device_name', FILTER_SANITIZE_SPECIAL_CHARS));
     $serial_number = trim(filter_input(INPUT_POST, 'serial_number', FILTER_SANITIZE_SPECIAL_CHARS));
+    $os_version = trim(filter_input(INPUT_POST, 'os_version', FILTER_SANITIZE_SPECIAL_CHARS));
+    $mac_address = trim(filter_input(INPUT_POST, 'mac_address', FILTER_SANITIZE_SPECIAL_CHARS));
     $date_received = filter_input(INPUT_POST, 'date_received', FILTER_SANITIZE_SPECIAL_CHARS);
     $initial_status = 'Available';
 
@@ -49,10 +51,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['add_asset'])) {
         $message = '<div class="alert alert-danger shadow-sm border-0"><i class="bi bi-exclamation-circle-fill me-2"></i> All fields, including Date Received, are required.</div>';
     } else {
         try {
-            $sql = "INSERT INTO assets (fam_tag_number, device_type, device_name, serial_number, date_received, status)
-                    VALUES (?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO assets (fam_tag_number, device_type, device_name, serial_number, os_version, mac_address, date_received, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $initial_status]);
+            $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $os_version ?: null, $mac_address ?: null, $date_received, $initial_status]);
 
             $message = '<div class="alert alert-success shadow-sm border-0"><i class="bi bi-check-circle-fill me-2"></i> Asset <strong>' . htmlspecialchars($fam_tag_number) . '</strong> added successfully!</div>';
         } catch (\PDOException $e) {
@@ -72,6 +74,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['update_asset'])) {
     $device_type = trim(filter_input(INPUT_POST, 'edit_device_type', FILTER_SANITIZE_SPECIAL_CHARS));
     $device_name = trim(filter_input(INPUT_POST, 'edit_device_name', FILTER_SANITIZE_SPECIAL_CHARS));
     $serial_number = trim(filter_input(INPUT_POST, 'edit_serial_number', FILTER_SANITIZE_SPECIAL_CHARS));
+    $os_version = trim(filter_input(INPUT_POST, 'edit_os_version', FILTER_SANITIZE_SPECIAL_CHARS));
+    $mac_address = trim(filter_input(INPUT_POST, 'edit_mac_address', FILTER_SANITIZE_SPECIAL_CHARS));
     $date_received = filter_input(INPUT_POST, 'edit_date_received', FILTER_SANITIZE_SPECIAL_CHARS);
     $status = trim(filter_input(INPUT_POST, 'edit_status', FILTER_SANITIZE_SPECIAL_CHARS));
 
@@ -98,10 +102,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['update_asset'])) {
                 $message = '<div class="alert alert-danger shadow-sm border-0">Cannot manually update status of an assigned asset here. Use Transmittal to Return, Issue, or Repair assigned items.</div>';
             } else {
                 $sql = "UPDATE assets
-                        SET fam_tag_number = ?, device_type = ?, device_name = ?, serial_number = ?, date_received = ?, status = ?
+                        SET fam_tag_number = ?, device_type = ?, device_name = ?, serial_number = ?, os_version = ?, mac_address = ?, date_received = ?, status = ?
                         WHERE asset_id = ?";
                 $stmt = $pdo->prepare($sql);
-                $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $date_received, $status, $asset_id]);
+                $stmt->execute([$fam_tag_number, $device_type, $device_name, $serial_number, $os_version ?: null, $mac_address ?: null, $date_received, $status, $asset_id]);
 
                 $message = '<div class="alert alert-success shadow-sm border-0">Asset updated successfully.</div>';
             }
@@ -162,6 +166,8 @@ $sql_fetch = "
         a.device_type,
         a.device_name,
         a.serial_number,
+        a.os_version,
+        a.mac_address,
         a.date_received,
         a.status,
         e.name AS current_user_name
@@ -228,10 +234,18 @@ include 'includes/sidebar.php';
                         </div>
                         <div class="row g-3 mt-1">
                             <div class="col-md-3">
+                                <label for="os_version" class="form-label">OS Version <span class="text-muted small">(optional)</span></label>
+                                <input type="text" class="form-control" id="os_version" name="os_version" placeholder="e.g. Windows 11 Pro 23H2">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="mac_address" class="form-label">MAC Address <span class="text-muted small">(optional)</span></label>
+                                <input type="text" class="form-control" id="mac_address" name="mac_address" placeholder="e.g. 00:1A:2B:3C:4D:5E">
+                            </div>
+                            <div class="col-md-3">
                                 <label for="date_received" class="form-label">Date Received</label>
                                 <input type="date" class="form-control" id="date_received" name="date_received" required>
                             </div>
-                            <div class="col-md-9 d-flex align-items-end justify-content-end">
+                            <div class="col-md-3 d-flex align-items-end justify-content-end">
                                 <button type="submit" class="btn btn-success px-4 shadow-sm"><i class="bi bi-save me-2"></i> Add to Inventory</button>
                             </div>
                         </div>
@@ -350,6 +364,12 @@ include 'includes/sidebar.php';
                                         <td>
                                             <div class="fw-semibold text-dark"><?php echo htmlspecialchars($asset['device_name']); ?></div>
                                             <div class="small text-muted">S/N: <?php echo htmlspecialchars($asset['serial_number']); ?></div>
+                                            <?php if (!empty($asset['mac_address'])): ?>
+                                                <div class="small text-muted">MAC: <?php echo htmlspecialchars($asset['mac_address']); ?></div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($asset['os_version'])): ?>
+                                                <div class="small text-muted">OS: <?php echo htmlspecialchars($asset['os_version']); ?></div>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="text-secondary"><?php echo htmlspecialchars($asset['date_received'] ? date('M d, Y', strtotime($asset['date_received'])) : '-'); ?></td>
                                         <td><span class="badge-status <?php echo $statusClass; ?>"><?php echo htmlspecialchars($asset['status']); ?></span></td>
@@ -371,6 +391,8 @@ include 'includes/sidebar.php';
                                                     data-type="<?php echo htmlspecialchars($asset['device_type']); ?>"
                                                     data-name="<?php echo htmlspecialchars($asset['device_name']); ?>"
                                                     data-serial="<?php echo htmlspecialchars($asset['serial_number']); ?>"
+                                                    data-os="<?php echo htmlspecialchars($asset['os_version']); ?>"
+                                                    data-mac="<?php echo htmlspecialchars($asset['mac_address']); ?>"
                                                     data-date="<?php echo htmlspecialchars($asset['date_received']); ?>"
                                                     data-status="<?php echo htmlspecialchars($asset['status']); ?>"
                                                     title="Edit"
@@ -454,6 +476,14 @@ include 'includes/sidebar.php';
                 <input type="text" class="form-control" id="edit_serial_number" name="edit_serial_number" required>
             </div>
             <div class="mb-3">
+                <label for="edit_os_version" class="form-label">OS Version <span class="text-muted small">(optional)</span></label>
+                <input type="text" class="form-control" id="edit_os_version" name="edit_os_version" placeholder="e.g. Windows 11 Pro 23H2">
+            </div>
+            <div class="mb-3">
+                <label for="edit_mac_address" class="form-label">MAC Address <span class="text-muted small">(optional)</span></label>
+                <input type="text" class="form-control" id="edit_mac_address" name="edit_mac_address" placeholder="e.g. 00:1A:2B:3C:4D:5E">
+            </div>
+            <div class="mb-3">
                 <label for="edit_date_received" class="form-label">Date Received</label>
                 <input type="date" class="form-control" id="edit_date_received" name="edit_date_received" required>
             </div>
@@ -511,6 +541,8 @@ $extra_scripts = <<<'HTML'
         editAssetModal.querySelector('#edit_device_type').value = button.getAttribute('data-type');
         editAssetModal.querySelector('#edit_device_name').value = button.getAttribute('data-name');
         editAssetModal.querySelector('#edit_serial_number').value = button.getAttribute('data-serial');
+        editAssetModal.querySelector('#edit_os_version').value = button.getAttribute('data-os');
+        editAssetModal.querySelector('#edit_mac_address').value = button.getAttribute('data-mac');
         editAssetModal.querySelector('#edit_date_received').value = button.getAttribute('data-date');
         editAssetModal.querySelector('#edit_status').value = button.getAttribute('data-status');
     });
