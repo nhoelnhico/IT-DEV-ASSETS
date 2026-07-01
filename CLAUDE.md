@@ -18,17 +18,7 @@ Database setup — **two files must both be applied**, in order:
 1. Import `it_inventory_assets.sql` (creates `assets`, `employees`, `transmittals` + seed data).
 2. Run `adding sql.sql` — it `ALTER`s the enums the dump is missing: `assets.status` needs `'Repairing'` and `transmittals.transaction_type` needs `'Repair'`. Without this, transmittal repairs and asset repair status fail.
 
-DB credentials live in `includes/config.php` (defaults: host `localhost`, db `it_inventory_assets`, user `root`, empty password).
-
-### Database migrations (required)
-
-The production database runs on an on-premise main PC, and changes are applied there by hand-running SQL. Therefore: **any time you add/alter/drop a table or column, or otherwise change the schema, you MUST also write a migration file under `migrations/`.** Do not rely on editing `it_inventory_assets.sql` alone — that dump is only the initial import; the on-prem DB already has data and can only receive incremental `ALTER`/`CREATE` statements.
-
-- Name files `migrations/YYYY-MM-DD_short_description.sql` (e.g. `2026-07-01_add_os_version_mac_address_to_assets.sql`).
-- Start each file with a comment header: what it does, the date, and that it is applied *after* the base schema on the on-prem PC.
-- Write plain, portable `ALTER TABLE` / `CREATE TABLE` statements (MySQL/MariaDB, XAMPP) — one migration per logical change, in the order it must run.
-- The migration and the PHP code that depends on it should land together in the same change.
-
+    DB credentials live in `includes/config.php` (defaults: host `localhost`, db `it_inventory_assets`, user `root`, empty password).d
 ## Architecture
 
 **Page pattern.** Every user-facing feature is a single self-contained `.php` file at the repo root. Each file has the same shape:
