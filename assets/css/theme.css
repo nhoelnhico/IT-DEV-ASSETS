@@ -166,6 +166,8 @@ a:hover { color: var(--accent); }
     position: sticky;
     top: 0;
     align-self: flex-start;
+    display: flex;
+    flex-direction: column;
     background: var(--side-bg);
     border-right: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow);
@@ -212,6 +214,10 @@ a:hover { color: var(--accent); }
     background: var(--accent-grad);
     box-shadow: 0 6px 16px rgba(var(--accent-rgb), .35);
 }
+
+/* sidebar bottom animation */
+.sidebar-foot { margin-top: auto; padding: 14px 14px 22px; display: flex; justify-content: center; }
+.sidebar-anim { width: 108px; height: 108px; max-width: 70%; opacity: .92; pointer-events: none; user-select: none; }
 
 /* mobile drawer backdrop */
 .sidebar-backdrop {
@@ -302,6 +308,27 @@ html[data-theme="dark"] .stat-card:hover, html[data-theme="dark"] .mini-card:hov
 /* dashboard mini cards */
 .mini-card { padding: 14px; text-align: center; }
 .mini-card .h5 { color: var(--heading); }
+
+/* department summary cards (employees page) */
+.dept-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.dept-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    text-decoration: none;
+    color: var(--text);
+    transition: transform .2s var(--ease-smooth), box-shadow .2s, border-color .2s, background .2s;
+}
+.dept-card:hover { transform: translateY(-3px); border-color: var(--accent); color: var(--text); }
+.dept-card .dept-name { font-size: .78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .02em; line-height: 1.25; }
+.dept-card .dept-count { font-size: 1.55rem; font-weight: 800; color: var(--heading); }
+.dept-card.active { background: var(--accent-grad); border-color: transparent; }
+.dept-card.active .dept-name, .dept-card.active .dept-count { color: #fff; }
 
 /* ---------- Forms ---------- */
 .form-label { font-weight: 600; font-size: .85rem; color: var(--text-muted); }

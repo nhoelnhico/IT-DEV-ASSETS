@@ -30,6 +30,9 @@ $nav_items = [
                 </a>
             <?php endforeach; ?>
         </nav>
+        <div class="sidebar-foot no-print">
+            <img src="assets/animation/it.svg" alt="" class="sidebar-anim" loading="lazy">
+        </div>
     </div>
 
     <div id="page-content-wrapper">

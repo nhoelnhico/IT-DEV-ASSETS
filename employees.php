@@ -3,16 +3,26 @@ require_once 'includes/config.php';
 
 $message = '';
 $search_term = '';
+$filter_department = '';
 $search_condition = '';
 $search_params = [];
 
-// --- 1. Handle Employee Search Query ---
+// --- 1. Handle Search + Department filter ---
+$conditions = [];
 if (isset($_GET['search']) && !empty($_GET['search'])) {
     $search_term = filter_input(INPUT_GET, 'search', FILTER_SANITIZE_STRING);
-    // Use LIKE for global search across Name, ID, Department, or Position
-    $search_condition = " WHERE e.name LIKE ? OR e.employee_id LIKE ? OR e.department LIKE ? OR e.position LIKE ?";
+    // Global search across Name, ID, Department, or Position
+    $conditions[] = "(e.name LIKE ? OR e.employee_id LIKE ? OR e.department LIKE ? OR e.position LIKE ?)";
     $like_term = '%' . $search_term . '%';
-    $search_params = [$like_term, $like_term, $like_term, $like_term];
+    array_push($search_params, $like_term, $like_term, $like_term, $like_term);
+}
+if (isset($_GET['department']) && $_GET['department'] !== '') {
+    $filter_department = filter_input(INPUT_GET, 'department', FILTER_SANITIZE_STRING);
+    $conditions[] = "e.department = ?";
+    $search_params[] = $filter_department;
+}
+if ($conditions) {
+    $search_condition = " WHERE " . implode(" AND ", $conditions);
 }
 
 // --- 2. Handle ADD NEW EMPLOYEE ---
@@ -64,6 +74,11 @@ $stmt = $pdo->prepare($sql_fetch);
 $stmt->execute($search_params);
 $employees = $stmt->fetchAll();
 $employee_count = count($employees);
+
+// --- Department head-counts for the clickable summary cards ---
+$dept_counts = $pdo->query("SELECT department, COUNT(*) AS cnt FROM employees GROUP BY department ORDER BY cnt DESC, department ASC")->fetchAll();
+$total_employees_all = 0;
+foreach ($dept_counts as $d) { $total_employees_all += (int)$d['cnt']; }
 
 $page_title   = 'IT Inventory | Employees';
 $active_page  = 'employees';
@@ -123,9 +138,34 @@ include 'includes/sidebar.php';
 
             <div class="content-card reveal">
                 <div class="card-header">
-                    <span><i class="bi bi-list-ul me-2"></i> Employee Directory (<?php echo $employee_count; ?>)</span>
+                    <span><i class="bi bi-diagram-3-fill me-2"></i> Employees by Department</span>
+                    <?php if ($filter_department !== ''): ?>
+                        <a href="employees.php" class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg me-1"></i> Clear filter</a>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body p-3">
+                    <div class="dept-grid">
+                        <a href="employees.php" class="dept-card<?php echo $filter_department === '' ? ' active' : ''; ?>">
+                            <span class="dept-name"><i class="bi bi-people me-1"></i> All Departments</span>
+                            <span class="dept-count"><?php echo $total_employees_all; ?></span>
+                        </a>
+                        <?php foreach ($dept_counts as $d):
+                            $is_active_dept = ($filter_department === $d['department']); ?>
+                            <a href="employees.php?department=<?php echo urlencode($d['department']); ?>" class="dept-card<?php echo $is_active_dept ? ' active' : ''; ?>">
+                                <span class="dept-name"><?php echo htmlspecialchars($d['department']); ?></span>
+                                <span class="dept-count"><?php echo (int)$d['cnt']; ?></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-card reveal">
+                <div class="card-header">
+                    <span><i class="bi bi-list-ul me-2"></i> Employee Directory (<?php echo $employee_count; ?>)<?php echo $filter_department !== '' ? ' &mdash; <span class="badge badge-soft-primary">' . htmlspecialchars($filter_department) . '</span>' : ''; ?></span>
 
                     <form method="GET" action="employees.php" class="d-flex" style="max-width: 300px;">
+                        <?php if ($filter_department !== ''): ?><input type="hidden" name="department" value="<?php echo htmlspecialchars($filter_department); ?>"><?php endif; ?>
                         <div class="input-group input-group-sm">
                             <input
                                 class="form-control"
